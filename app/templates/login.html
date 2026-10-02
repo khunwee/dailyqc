@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ L('เข้าสู่ระบบ', 'Log in') }} | {{ g.app_name }}</title>
+<link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/css/app.css?v={{ version }}">
+</head>
+<body>
+<div class="login">
+  <section class="side">
+    <div>
+      <h1>Daily QC<br>Operation Report</h1>
+      <p>{{ L('ผลตรวจของทุก Line ทุกกะ และปัญหาคุณภาพพร้อมรูป รวมไว้ที่เดียว สรุปเป็นรายงานรายวันและรายเดือนให้ Assembly ใช้แก้ปัญหา',
+              'Inspection results from every line and shift, plus quality issues with photos, in one place: summarised daily and monthly for Assembly.') }}</p>
+      <div class="tags" aria-hidden="true">
+        <div class="tag ok"><div class="val">OK</div></div>
+        <div class="tag nc"><div class="val">NC</div></div>
+        <div class="tag ng"><div class="val">NG</div></div>
+      </div>
+    </div>
+    <div class="small" style="color:#8E9CB8">{{ g.company }} Quality Control &nbsp; v{{ version }}</div>
+  </section>
+  <section class="form">
+    <form method="post" action="/login" autocomplete="on">
+      <h2>{{ L('เข้าสู่ระบบ', 'Log in') }}</h2>
+      {% for kind, msg in flashes %}<div class="flash {{ kind }}">{{ msg }}</div>{% endfor %}
+      <input type="hidden" name="next" value="{{ next }}">
+      <div class="field"><label for="u">{{ L('ชื่อผู้ใช้', 'Username') }}</label><input id="u" type="text" name="username" autocapitalize="none" autofocus required></div>
+      <div class="field"><label for="p">{{ L('รหัสผ่าน', 'Password') }}</label><input id="p" type="password" name="password" required></div>
+      <button class="btn pri" style="width:100%;min-height:46px">{{ L('เข้าสู่ระบบ', 'Log in') }}</button>
+      <p class="hint" style="margin-top:18px"><a href="/lang/{{ 'en' if lang == 'th' else 'th' }}">{{ 'English' if lang == 'th' else 'ภาษาไทย' }}</a></p>
+    </form>
+  </section>
+</div>
+</body>
+</html>

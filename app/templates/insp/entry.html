@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+{% block crumb %}<span class="crumb">QC Inspection Report</span>{% endblock %}
+{% block title %}{{ L('บันทึกผลตรวจประจำกะ', 'Enter shift results') }}{% endblock %}
+{% block content %}
+{% set qs = 'date=' ~ d ~ '&shift=' ~ shift ~ '&line=' ~ line.id %}
+<form class="panel" method="get" id="pick">
+  <div class="body sheet-head">
+    <div><label>{{ L('วันที่ผลิต', 'Production date') }}</label>
+      <div class="inline" style="flex-wrap:nowrap"><a class="btn" href="?date={{ prev }}&shift={{ shift }}&line={{ line.id }}{% if cust %}&customer={{ cust.id }}{% endif %}" aria-label="previous day">‹</a>
+        <input type="date" name="date" value="{{ d }}" max="{{ today }}" style="width:auto">
+        <a class="btn" href="?date={{ nxt }}&shift={{ shift }}&line={{ line.id }}{% if cust %}&customer={{ cust.id }}{% endif %}" aria-label="next day">›</a></div></div>
+    <div><label>{{ L('กะ', 'Shift') }}</label>
+      <div class="seg"><label><input type="radio" name="shift" value="D" {{ 'checked' if shift == 'D' }}><span>Day</span></label>
+        <label><input type="radio" name="shift" value="N" {{ 'checked' if shift == 'N' }}><span>Night</span></label></div></div>
+    <div><label>Line</label><select name="line">{% for l in my_lines %}<option value="{{ l.id }}" {{ 'selected' if l.id == line.id }}>{{ l.name }}</option>{% endfor %}</select></div>
+    <div style="flex:1;min-width:240px"><label>{{ L('ลูกค้า', 'Customer') }}</label>
+      <div class="seg" style="flex-wrap:wrap">{% for c in customers %}<a href="?{{ qs }}&customer={{ c.id }}" class="{{ 'on' if cust and c.id == cust.id }}">{{ c.code }}</a>{% endfor %}</div>
+      {% if cust %}<input type="hidden" name="customer" value="{{ cust.id }}">{% endif %}</div>
+  </div>
+</form>
+
+{% if locked %}<div class="flash warn">{{ L('ข้อมูลของวันนี้เกินกำหนดแก้ไขแล้ว ดูได้อย่างเดียว ถ้าต้องแก้ไขให้แจ้งหัวหน้า QC', 'This day is locked. Ask the QC supervisor to make changes.') }}</div>{% endif %}
+{% if other_count %}<div class="flash ok">{{ L('กะนี้มีผลตรวจของลูกค้าอื่นบันทึกไว้แล้ว', 'This shift already has records for other customers:') }} {{ other_count }} Part</div>{% endif %}
+<div id="msg"></div>
+
+<section class="panel">
+  <header><h2>{{ line.name }}, {{ L('กะ', 'shift') }} {{ 'Day' if shift == 'D' else 'Night' }}, {{ d | d }}{% if cust %} : {{ cust.code }}{% endif %}</h2>
+    <input type="search" id="find" placeholder="{{ L('ค้นหา Part No. หรือชื่อ', 'Find part no. or name') }}" style="max-width:240px">
+    <label class="check" style="margin:0"><input type="checkbox" id="autoCheck" checked>{{ L('QC Check เท่ากับ Production', 'QC Check = Production') }}</label></header>
+  <div class="body flush tblwrap">
+    {% if parts %}
+    <table class="t sheet" id="sheet">
+      <thead><tr><th style="width:66px">{{ L('รูป', 'Pic') }}</th><th>Part</th><th>Production</th><th>QC Check</th><th class="h-ok">OK</th><th class="h-ng">NG</th><th class="h-nc">NC</th><th style="text-align:left">{{ L('อาการเสีย / หมายเหตุ', 'Defects / remark') }}</th></tr></thead>
+      <tbody>
+      {% set ns = namespace(proc=None) %}
+      {% for p in parts %}{% set r = recs.get(p.id) %}
+      {% if p.process and p.process != ns.proc %}<tr class="proc"><td colspan="8">{{ p.process }}</td></tr>{% endif %}{% set ns.proc = p.process %}
+      <tr class="prow {{ 'saved' if r }}" data-part="{{ p.id }}" data-find="{{ (p.part_no ~ ' ' ~ p.part_name) | lower }}">
+        <td class="c-pic"><img class="thumb" src="/part-image/{{ p.id }}?v={{ p.image_ver }}" alt="" loading="lazy" {% if p.has_image %}data-full="/part-image/{{ p.id }}?v={{ p.image_ver }}"{% endif %}></td>
+        <td class="c-part"><div class="pno">{{ p.part_no }}</div><div class="pname">{{ p.part_name }}</div><div class="mute small">{{ p.model }} {{ p.variant }}</div></td>
+        {% for k, lab, cls in [('production', 'Production', ''), ('qc_check', 'QC Check', ''), ('ok', 'OK', 'i-ok'), ('ng', 'NG', 'i-ng'), ('nc', 'NC', 'i-nc')] %}
+        <td class="c-q" data-l="{{ lab }}"><input class="q {{ cls }}" type="number" inputmode="numeric" min="0" step="1" data-k="{{ k }}" value="{{ r[k] if r and (r[k] or k in ['production', 'qc_check', 'ok']) else '' }}" {{ 'disabled' if locked }} aria-label="{{ lab }} {{ p.part_no }}">
+          {% if k == 'ok' %}<div class="sumhint"></div>{% endif %}</td>
+        {% endfor %}
+        <td class="c-more"><button type="button" class="btn sm dbtn" {{ 'disabled' if locked }}>{{ L('อาการเสีย', 'Defects') }} <b class="dcount"></b></button>
+          <input type="text" class="remark" value="{{ r.remark if r else '' }}" placeholder="{{ L('หมายเหตุ', 'Remark') }}" style="min-height:32px;padding:3px 8px;margin-top:4px" {{ 'disabled' if locked }}></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty"><b>{{ L('ยังไม่มี Part ของลูกค้านี้', 'No parts for this customer yet') }}</b>
+      {{ L('ให้ Admin เพิ่ม Part ที่เมนู Part และรูป Part', 'An admin can add them under Parts and pictures.') }}</div>
+    {% endif %}
+  </div>
+  {% if parts and not locked %}
+  <div class="savebar">
+    <div class="tot"><span>Production<b id="tP">0</b></span><span>QC Check<b id="tC">0</b></span><span>OK<b id="tO">0</b></span><span>NG<b id="tG">0</b></span><span>NC<b id="tN">0</b></span></div>
+    <span id="dirtyNote" class="small" hidden>{{ L('มีข้อมูลที่ยังไม่บันทึก', 'Unsaved changes') }}</span>
+    <button type="button" class="btn go" id="saveBtn">{{ L('บันทึกผลตรวจ', 'Save results') }}</button>
+  </div>
+  {% endif %}
+</section>
+
+<dialog id="dlg">
+  <header><h2 id="dTitle"></h2><div class="mute small" id="dSub"></div></header>
+  <div class="body"><div id="dRows"></div>
+    <button type="button" class="btn sm" id="dAdd">{{ L('เพิ่มอาการ', 'Add a defect') }}</button>
+    <p class="hint" id="dHint"></p></div>
+  <footer><button type="button" class="btn" id="dCancel">{{ L('ยกเลิก', 'Cancel') }}</button><button type="button" class="btn pri" id="dOk">{{ L('ใช้รายการนี้', 'Use this list') }}</button></footer>
+</dialog>
+{% endblock %}
+{% block scripts %}
+<script type="application/json" id="dRec">{{ rec_json | safe }}</script>
+<script>
+(() => {
+  const { $, $$, esc, fmt } = QC;
+  const ctx = { date: '{{ d }}', shift: '{{ shift }}', line_id: {{ line.id }} };
+  const defs = {};                                   // part id -> [{defect_id, kind, qty}]
+  Object.entries(QC.data('dRec') || {}).forEach(([k, v]) => defs[k] = v.defects || []);
+  const DEFECTS = [{% for x in defects %}{ id: {{ x.id }}, name: {{ x.name | tojson }}, group: {{ x.group_name | tojson }} },{% endfor %}];
+  const rows = $$('tr.prow');
+  const val = (tr, k) => { const v = tr.querySelector(`[data-k=${k}]`).value; return v === '' ? 0 : Math.max(0, parseInt(v, 10) || 0); };
+  let dirty = false;
+
+  function refresh(tr) {
+    const c = val(tr, 'qc_check'), sum = val(tr, 'ok') + val(tr, 'ng') + val(tr, 'nc');
+    const hint = tr.querySelector('.sumhint');
+    const bad = c > 0 && sum !== c;
+    tr.classList.toggle('bad', bad);
+    hint.textContent = bad ? `${sum} / ${c}` : '';
+    const d = defs[tr.dataset.part] || [];
+    tr.querySelector('.dcount').textContent = d.length ? `(${d.reduce((a, x) => a + (+x.qty || 0), 0)})` : '';
+    $$('input.q', tr).forEach(i => i.classList.toggle('has', i.value !== ''));
+  }
+  function totals() {
+    const t = { production: 0, qc_check: 0, ok: 0, ng: 0, nc: 0 };
+    rows.forEach(tr => Object.keys(t).forEach(k => t[k] += val(tr, k)));
+    [['tP', 'production'], ['tC', 'qc_check'], ['tO', 'ok'], ['tG', 'ng'], ['tN', 'nc']].forEach(([id, k]) => { const el = $('#' + id); if (el) el.textContent = fmt(t[k]); });
+  }
+  function touch(tr) {
+    dirty = true; tr.classList.add('dirty'); tr.classList.remove('saved');
+    const n = $('#dirtyNote'); if (n) n.hidden = false;
+  }
+
+  rows.forEach(tr => {
+    const inp = k => tr.querySelector(`[data-k=${k}]`);
+    if (inp('ok').value === '') inp('ok').dataset.auto = '1';
+    if (inp('qc_check').value === '' ) inp('qc_check').dataset.auto = '1';
+    tr.addEventListener('input', e => {
+      const k = e.target.dataset.k;
+      if (!k && !e.target.classList.contains('remark')) return;
+      if (k === 'ok') delete inp('ok').dataset.auto;
+      if (k === 'qc_check') delete inp('qc_check').dataset.auto;
+      if (k === 'production' && $('#autoCheck').checked && inp('qc_check').dataset.auto) inp('qc_check').value = inp('production').value;
+      if (k && k !== 'ok' && inp('ok').dataset.auto) {
+        const c = val(tr, 'qc_check');
+        inp('ok').value = c ? Math.max(0, c - val(tr, 'ng') - val(tr, 'nc')) : '';
+      }
+      touch(tr); refresh(tr); totals();
+    });
+    tr.addEventListener('keydown', e => {
+      if (e.key !== 'Enter' || !e.target.dataset.k) return;
+      e.preventDefault();
+      let n = tr.nextElementSibling;
+      while (n && (!n.classList.contains('prow') || n.hidden)) n = n.nextElementSibling;
+      n?.querySelector(`[data-k=${e.target.dataset.k}]`)?.focus();
+    });
+    tr.querySelector('.dbtn')?.addEventListener('click', () => openDlg(tr));
+    refresh(tr);
+  });
+  totals();
+
+  $('#find')?.addEventListener('input', e => {
+    const q = e.target.value.trim().toLowerCase();
+    rows.forEach(tr => tr.hidden = !!q && !tr.dataset.find.includes(q));
+  });
+
+  // changing date / shift / line reloads the sheet
+  $$('#pick input[type=date], #pick input[type=radio], #pick select').forEach(el => el.addEventListener('change', () => {
+    if (dirty && !confirm({{ L('มีข้อมูลที่ยังไม่ได้บันทึก จะเปลี่ยนหน้าโดยไม่บันทึกหรือไม่', 'You have unsaved changes. Leave without saving?') | tojson }})) return;
+    dirty = false;
+    if (el.name === 'line') $('#pick [name=customer]')?.remove();
+    $('#pick').submit();
+  }));
+  window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+  // ---- defect dialog
+  const dlg = $('#dlg'); let cur = null;
+  const opts = (() => { let g = null, h = ''; DEFECTS.forEach(d => { if (d.group !== g) { h += (g !== null ? '</optgroup>' : '') + `<optgroup label="${esc(d.group || '-')}">`; g = d.group; } h += `<option value="${d.id}">${esc(d.name)}</option>`; }); return h + '</optgroup>'; })();
+  function addRow(x = {}) {
+    const div = document.createElement('div'); div.className = 'drow';
+    div.innerHTML = `<select class="dd"><option value="">{{ L('เลือกอาการเสีย', 'Choose a defect') }}</option>${opts}</select>
+      <select class="dk"><option>NG</option><option>NC</option></select>
+      <input class="dq" type="number" inputmode="numeric" min="1" step="1" placeholder="{{ L('จำนวน', 'Qty') }}">
+      <button type="button" class="btn sm danger" aria-label="remove">×</button>`;
+    div.querySelector('.dd').value = x.defect_id || ''; div.querySelector('.dk').value = x.kind || 'NG'; div.querySelector('.dq').value = x.qty || '';
+    div.querySelector('button').onclick = () => { div.remove(); hint(); };
+    div.addEventListener('input', hint);
+    $('#dRows').appendChild(div);
+  }
+  function read() {
+    return $$('#dRows .drow').map(r => ({ defect_id: +r.querySelector('.dd').value, kind: r.querySelector('.dk').value, qty: parseInt(r.querySelector('.dq').value, 10) || 0 }))
+      .filter(x => x.defect_id && x.qty > 0);
+  }
+  function hint() {
+    const list = read(), ng = list.filter(x => x.kind === 'NG').reduce((a, x) => a + x.qty, 0), nc = list.filter(x => x.kind === 'NC').reduce((a, x) => a + x.qty, 0);
+    const rn = val(cur, 'ng'), rc = val(cur, 'nc');
+    $('#dHint').textContent = `{{ L('ระบุแล้ว', 'Listed') }} NG ${ng} / ${rn}, NC ${nc} / ${rc}` + ((ng !== rn || nc !== rc) ? ' {{ L('(ยังไม่เท่ากับจำนวนที่กรอกในตาราง)', '(does not match the sheet yet)') }}' : '');
+  }
+  function openDlg(tr) {
+    cur = tr;
+    $('#dTitle').textContent = tr.querySelector('.pno').textContent;
+    $('#dSub').textContent = tr.querySelector('.pname').textContent;
+    $('#dRows').innerHTML = '';
+    const list = defs[tr.dataset.part] || [];
+    (list.length ? list : [{ kind: val(tr, 'ng') ? 'NG' : (val(tr, 'nc') ? 'NC' : 'NG') }]).forEach(addRow);
+    hint(); dlg.showModal();
+  }
+  $('#dAdd').onclick = () => { addRow(); hint(); };
+  $('#dCancel').onclick = () => dlg.close();
+  $('#dOk').onclick = () => {
+    const list = read(); defs[cur.dataset.part] = list;
+    // if NG / NC were left empty, take them from the list
+    ['NG', 'NC'].forEach(kind => {
+      const i = cur.querySelector(`[data-k=${kind.toLowerCase()}]`), s = list.filter(x => x.kind === kind).reduce((a, x) => a + x.qty, 0);
+      if (i.value === '' && s) { i.value = s; i.dispatchEvent(new Event('input', { bubbles: true })); }
+    });
+    touch(cur); refresh(cur); totals(); dlg.close();
+  };
+
+  // ---- save
+  $('#saveBtn')?.addEventListener('click', async () => {
+    const btn = $('#saveBtn');
+    const payload = { ...ctx, rows: rows.filter(tr => tr.classList.contains('dirty') || tr.classList.contains('saved')).map(tr => ({
+      part_id: +tr.dataset.part, production: val(tr, 'production'), qc_check: val(tr, 'qc_check'), ok: val(tr, 'ok'), ng: val(tr, 'ng'), nc: val(tr, 'nc'),
+      remark: tr.querySelector('.remark').value, defects: defs[tr.dataset.part] || [] })) };
+    if (!payload.rows.length) { show('warn', {{ L('ยังไม่ได้กรอกตัวเลขของ Part ใดเลย', 'Nothing has been entered yet') | tojson }}); return; }
+    btn.disabled = true; btn.textContent = {{ L('กำลังบันทึก', 'Saving') | tojson }};
+    try {
+      const r = await fetch('/api/insp/sheet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || r.status);
+      rows.forEach(tr => {
+        if (!tr.classList.contains('dirty') && !tr.classList.contains('saved')) return;
+        const any = ['production', 'qc_check', 'ok', 'ng', 'nc'].some(k => val(tr, k)) || tr.querySelector('.remark').value.trim();
+        tr.classList.remove('dirty'); tr.classList.toggle('saved', !!any);
+      });
+      dirty = false; $('#dirtyNote').hidden = true;
+      show(j.warnings.length ? 'warn' : 'ok', `{{ L('บันทึกแล้ว', 'Saved') }} ${j.saved} Part` + (j.removed ? `, {{ L('ลบ', 'removed') }} ${j.removed}` : '')
+        + (j.warnings.length ? '<br>{{ L('ตรวจสอบอีกครั้ง', 'Please check') }}: ' + j.warnings.map(esc).join('<br>') : ''));
+    } catch (err) {
+      show('err', {{ L('บันทึกไม่สำเร็จ', 'Could not save') | tojson }} + ': ' + esc(err.message) + ' {{ L('ข้อมูลยังอยู่บนหน้าจอ ลองกดบันทึกอีกครั้ง', 'Your numbers are still on screen. Try saving again.') }}');
+    }
+    btn.disabled = false; btn.textContent = {{ L('บันทึกผลตรวจ', 'Save results') | tojson }};
+  });
+  function show(kind, html) { $('#msg').innerHTML = `<div class="flash ${kind}">${html}</div>`; window.scrollTo({ top: 0, behavior: 'smooth' }); }
+})();
+</script>
+{% endblock %}

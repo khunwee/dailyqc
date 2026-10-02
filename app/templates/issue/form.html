@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block crumb %}<span class="crumb">QC Report Quality Issue</span>{% endblock %}
+{% block title %}{% if is_new %}{{ L('แจ้งปัญหาที่พบ', 'Report an issue') }}{% else %}{{ L('แก้ไขเคส', 'Edit case') }} {{ it.case_no }}{% endif %}{% endblock %}
+{% block content %}
+{% set full = is_new or full_edit %}
+{% set analyze = 'issue.analyze' in perms or 'issue.edit_all' in perms %}
+<form method="post" enctype="multipart/form-data" id="f" action="{{ '/issues/new' if is_new else '/issues/' ~ it.id ~ '/edit' }}" style="max-width:980px">
+{% if full %}
+<section class="panel">
+  <header><h2>{{ L('พบปัญหาที่ไหน เมื่อไร', 'Where and when') }}</h2></header>
+  <div class="body">
+    <div class="field"><div class="seg">
+      <label><input type="radio" name="source" value="internal" {{ 'checked' if it.source != 'external' }}><span>{{ L('พบภายในโรงงาน', 'Found in-house') }}</span></label>
+      <label><input type="radio" name="source" value="external" {{ 'checked' if it.source == 'external' }}><span>{{ L('ลูกค้าแจ้งกลับมา', 'Reported by customer') }}</span></label></div></div>
+    <div class="frow">
+      <div class="field"><label>{{ L('วันที่พบ', 'Found date') }}</label><input type="date" name="found_date" value="{{ it.found_date }}" max="{{ today }}" required></div>
+      <div class="field"><label>{{ L('กะ', 'Shift') }}</label><select name="shift"><option value="">-</option><option value="D" {{ 'selected' if it.shift == 'D' }}>Day</option><option value="N" {{ 'selected' if it.shift == 'N' }}>Night</option></select></div>
+      <div class="field"><label>{{ L('พบที่', 'Found at') }}</label><input type="text" name="found_at" value="{{ it.found_at }}" list="fa" placeholder="AAPICO, FTM, GA"><datalist id="fa">{% for x in found_ats %}<option value="{{ x }}">{% endfor %}</datalist></div>
+      <div class="field"><label>Line</label><select name="line_id"><option value="">-</option>{% for l in lines %}<option value="{{ l.id }}" {{ 'selected' if it.line_id == l.id }}>{{ l.name }}</option>{% endfor %}</select></div>
+      <div class="field"><label>{{ L('ประเภทรายงาน', 'Category') }}</label><select name="category">{% for c in categories %}<option {{ 'selected' if it.category == c }}>{{ c }}</option>{% endfor %}</select></div>
+    </div>
+  </div>
+</section>
+
+<section class="panel">
+  <header><h2>Part</h2></header>
+  <div class="body">
+    <div class="frow">
+      <div class="field"><label>{{ L('ลูกค้า', 'Customer') }}</label><select name="customer_id" id="cust" required><option value="">{{ L('เลือกลูกค้า', 'Choose a customer') }}</option>{% for c in customers %}<option value="{{ c.id }}" {{ 'selected' if it.customer_id == c.id }}>{{ c.code }}</option>{% endfor %}</select></div>
+      <div class="field" style="grid-column:span 2"><label>{{ L('เลือก Part จากรายการ', 'Pick a part') }}</label><select name="part_id" id="part" data-cur="{{ it.part_id or '' }}"><option value="">{{ L('เลือกลูกค้าก่อน', 'Choose a customer first') }}</option></select></div>
+    </div>
+    <div class="inline" style="align-items:flex-start;flex-wrap:nowrap;gap:14px">
+      <img class="thumb lg" id="pimg" src="/part-image/{{ it.part_id or 0 }}" alt="">
+      <div class="frow" style="flex:1">
+        <div class="field"><label>Part No.</label><input type="text" name="part_no" id="pno" value="{{ it.part_no }}"></div>
+        <div class="field"><label>Part Name</label><input type="text" name="part_name" id="pname" value="{{ it.part_name }}"></div>
+        <div class="field"><label>Model</label><input type="text" name="model" id="pmodel" value="{{ it.model }}"></div>
+      </div>
+    </div>
+    <p class="hint">{{ L('ถ้า Part ไม่อยู่ในรายการ พิมพ์ Part No. และชื่อเองได้', 'If the part is not listed, type the part no. and name yourself.') }}</p>
+  </div>
+</section>
+
+<section class="panel">
+  <header><h2>{{ L('ปัญหาที่พบ', 'The problem') }}</h2></header>
+  <div class="body">
+    <div class="frow">
+      <div class="field" style="grid-column:span 2"><label>{{ L('อาการเสีย', 'Defect type') }}</label><select name="defect_id"><option value="">{{ L('เลือกอาการเสีย', 'Choose a defect') }}</option>
+        {% for grp, items in defects | groupby('group_name') %}<optgroup label="{{ grp or '-' }}">{% for x in items %}<option value="{{ x.id }}" {{ 'selected' if it.defect_id == x.id }}>{{ x.name }}</option>{% endfor %}</optgroup>{% endfor %}</select></div>
+      <div class="field"><label>{{ L('จำนวนที่พบ (ชิ้น)', 'Quantity found (pcs)') }}</label><input type="number" name="ng_qty" min="0" step="1" inputmode="numeric" value="{{ it.ng_qty or 0 }}" required></div>
+      <div class="field"><label>Lot / {{ L('วันที่ผลิต', 'production date') }}</label><input type="text" name="lot_no" value="{{ it.lot_no or '' }}"></div>
+    </div>
+    <div class="field"><label>{{ L('รายละเอียดปัญหา', 'Problem description') }}</label>
+      <textarea name="problem" placeholder="{{ L('เช่น Sub nut wrong spec. Std. M8 thread / Act. M8 no thread', 'e.g. Sub nut wrong spec. Std. M8 thread / Act. M8 no thread') }}">{{ it.problem }}</textarea></div>
+    {% if is_new and not analyze %}<div class="field"><label>{{ L('การจัดการเบื้องต้นของ QC (ถ้ามี)', 'Immediate QC action (if any)') }}</label><textarea name="action" placeholder="{{ L('เช่น Sorting ที่ AAPICO 330 pcs. OK 330, NG 0', 'e.g. Sorted 330 pcs at AAPICO. OK 330, NG 0') }}"></textarea></div>{% endif %}
+  </div>
+</section>
+
+<section class="panel">
+  <header><h2>{{ L('รูปหลักฐาน', 'Evidence photos') }}</h2><span class="mute small">{{ L('สูงสุด', 'up to') }} {{ max_photos }} {{ L('รูปต่อเคส', 'per case') }}</span></header>
+  <div class="body">
+    {% if not is_new and it.photos %}<div class="photos" style="margin-bottom:12px">{% for ph in it.photos %}
+      <div class="photo {{ 'gone' if ph.purged_at }}"><img src="/photo/{{ ph.id }}?t=1" alt="">{% if ph.tag %}<span class="stamp {{ ph.tag }}">{{ ph.tag }}</span>{% endif %}
+        <div class="meta"><span class="mute">{{ ph.created_at.strftime('%d/%m') }}</span></div></div>{% endfor %}</div>
+      <p class="hint">{{ L('ลบรูปหรือเปลี่ยนป้าย NG / OK ได้ที่หน้ารายละเอียดเคส', 'Remove photos or change the NG / OK tag on the case page.') }}</p>{% endif %}
+    <label class="drop" id="drop" for="photos"><b>{{ L('ถ่ายรูป หรือเลือกรูปจากเครื่อง', 'Take a photo or choose files') }}</b>
+      <div class="mute small">{{ L('เลือกได้หลายรูป ระบบจะย่อขนาดให้เองก่อนส่ง', 'Several at once. They are resized before upload.') }}</div></label>
+    <input type="file" id="photos" name="photos" accept="image/*" multiple hidden>
+    <div class="photos" id="prev" style="margin-top:12px"></div>
+    <p class="hint">{{ L('รูปขนาดเต็มจะถูกเก็บไว้', 'Full-size photos are kept for') }} {{ keep_days }} {{ L('วัน แล้วลบอัตโนมัติ ส่วนข้อความของเคสเก็บไว้ตลอด', 'days, then removed automatically. The case text is kept permanently.') }}</p>
+  </div>
+</section>
+{% else %}
+<section class="panel"><div class="body"><dl class="kv">
+  <dt>Part</dt><dd><b>{{ it.part_no }}</b> {{ it.part_name }}</dd><dt>{{ L('ปัญหา', 'Problem') }}</dt><dd>{{ it.problem }}</dd>
+  <dt>{{ L('พบเมื่อ', 'Found') }}</dt><dd>{{ it.found_date | d }} {{ it.found_at }}, NG {{ it.ng_qty }} pc.</dd></dl></div></section>
+{% endif %}
+
+{% if analyze %}
+<section class="panel">
+  <header><h2>{{ L('การวิเคราะห์และแก้ไข', 'Analysis and correction') }}</h2></header>
+  <div class="body">
+    <div class="field"><label>QA/QC-AHR Action</label><textarea name="action" placeholder="{{ L('เช่น จัดคน Sorting ที่ลูกค้า 400 pcs. Result OK 400, NG 0', 'e.g. Resident sorted 400 pcs at customer. OK 400, NG 0') }}">{{ it.action or '' }}</textarea></div>
+    <div class="field"><label>1. Root Cause</label><textarea name="root_cause">{{ it.root_cause or '' }}</textarea></div>
+    <div class="field"><label>2. Correction (Immediate Containment)</label><textarea name="correction">{{ it.correction or '' }}</textarea></div>
+    <div class="frow">
+      <div class="field"><label>Plan date</label><input type="date" name="plan_date" value="{{ it.plan_date or '' }}"></div>
+      <div class="field"><label>Actual date</label><input type="date" name="actual_date" value="{{ it.actual_date or '' }}"></div>
+      <div class="field"><label>{{ L('ผู้รับผิดชอบ', 'Responsible') }}</label><input type="text" name="responsible" value="{{ it.responsible or '' }}"></div>
+      <div class="field"><label>{{ L('สถานะเคส', 'Case status') }}</label><select name="status">
+        <option value="open" {{ 'selected' if it.status == 'open' }}>{{ L('เปิดอยู่', 'Open') }}</option><option value="in_progress" {{ 'selected' if it.status == 'in_progress' }}>{{ L('กำลังแก้ไข', 'In progress') }}</option><option value="closed" {{ 'selected' if it.status == 'closed' }}>{{ L('ปิดแล้ว', 'Closed') }}</option></select></div>
+    </div>
+    <div class="field"><label>3. Prevention</label><textarea name="prevention">{{ it.prevention or '' }}</textarea></div>
+  </div>
+</section>
+{% endif %}
+<div class="inline"><button class="btn go" id="sub" style="min-height:46px;padding:8px 26px">{{ L('บันทึกเคส', 'Save case') }}</button>
+  <a class="btn" href="{{ '/issues' if is_new else '/issues/' ~ it.id }}">{{ L('ยกเลิก', 'Cancel') }}</a></div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const { $, esc } = QC;
+  const cust = $('#cust'), part = $('#part');
+  if (!cust) return;
+  let parts = [];
+  async function loadParts(keep) {
+    if (!cust.value) { part.innerHTML = '<option value="">{{ L('เลือกลูกค้าก่อน', 'Choose a customer first') }}</option>'; return; }
+    parts = await (await fetch('/api/parts?customer=' + cust.value)).json();
+    let g = null, h = '<option value="">{{ L('เลือก Part หรือพิมพ์เองด้านล่าง', 'Pick a part, or type it below') }}</option>';
+    parts.forEach(p => { if ((p.process || '') !== g) { h += (g !== null ? '</optgroup>' : '') + `<optgroup label="${esc(p.process || '-')}">`; g = p.process || ''; }
+      h += `<option value="${p.id}">${esc(p.part_no)}  ${esc(p.part_name)} ${esc(p.variant)}</option>`; });
+    part.innerHTML = h + (g !== null ? '</optgroup>' : '');
+    if (keep) part.value = part.dataset.cur;
+  }
+  cust.addEventListener('change', () => loadParts(false));
+  part.addEventListener('change', () => {
+    const p = parts.find(x => x.id == part.value); if (!p) return;
+    $('#pno').value = p.part_no; $('#pname').value = p.part_name; $('#pmodel').value = p.model;
+    $('#pimg').src = '/part-image/' + p.id + '?v=' + p.v;
+  });
+  loadParts(true);
+
+  // ---- photos: resize in the browser, keep a list, hand it to the form on submit
+  const MAX = {{ max_photos }} - {{ 0 if is_new else it.photos | length }}, input = $('#photos'), prev = $('#prev'), drop = $('#drop');
+  const picked = [];
+  const resize = file => new Promise(res => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const k = Math.min(1, {{ g.photo_max_px }} / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+      c.toBlob(b => res(b || file), 'image/jpeg', 0.85);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); res(file); };
+    img.src = url;
+  });
+  function draw() {
+    prev.innerHTML = picked.map((p, i) => `<div class="photo"><img src="${p.url}" alt="">${p.tag ? `<span class="stamp ${p.tag}">${p.tag}</span>` : ''}
+      <div class="meta"><span><button type="button" class="btn sm" data-t="${i}">{{ L('ป้าย', 'Tag') }}: ${p.tag || '-'}</button></span><button type="button" class="btn sm danger" data-x="${i}">{{ L('เอาออก', 'Remove') }}</button></div></div>`).join('');
+  }
+  async function add(files) {
+    for (const f of files) {
+      if (!f.type.startsWith('image/')) continue;
+      if (picked.length >= MAX) { alert('{{ L('แนบได้สูงสุด', 'Maximum') }} {{ max_photos }} {{ L('รูปต่อเคส', 'photos per case') }}'); break; }
+      const b = await resize(f);
+      picked.push({ blob: b, url: URL.createObjectURL(b), tag: picked.length ? '' : 'NG' });
+    }
+    draw();
+  }
+  input?.addEventListener('change', async () => { await add([...input.files]); input.value = ''; });
+  prev?.addEventListener('click', e => {
+    const t = e.target.dataset.t, x = e.target.dataset.x;
+    if (t !== undefined) { const p = picked[+t]; p.tag = p.tag === '' ? 'NG' : (p.tag === 'NG' ? 'OK' : ''); draw(); }
+    if (x !== undefined) { URL.revokeObjectURL(picked[+x].url); picked.splice(+x, 1); draw(); }
+  });
+  ['dragover', 'dragleave', 'drop'].forEach(ev => drop?.addEventListener(ev, e => { e.preventDefault(); drop.classList.toggle('over', ev === 'dragover'); if (ev === 'drop') add([...e.dataTransfer.files]); }));
+
+  $('#f').addEventListener('submit', e => {
+    const form = e.target;
+    if (input && picked.length) {
+      try {
+        const dt = new DataTransfer();
+        picked.forEach((p, i) => { dt.items.add(new File([p.blob], `photo${i + 1}.jpg`, { type: 'image/jpeg' }));
+          const h = document.createElement('input'); h.type = 'hidden'; h.name = 'tags'; h.value = p.tag || '-'; form.appendChild(h); });
+        input.files = dt.files;
+      } catch (_) { /* very old browser: photos picked last stay in the input */ }
+    }
+    {% if is_new %}if (input && !picked.length && !confirm('{{ L('ยังไม่ได้แนบรูปหลักฐาน จะบันทึกเคสโดยไม่มีรูปหรือไม่', 'No photo attached. Save the case without a photo?') }}')) { e.preventDefault(); return; }{% endif %}
+    $('#sub').disabled = true; $('#sub').textContent = '{{ L('กำลังส่งข้อมูล', 'Sending') }}';
+  });
+})();
+</script>
+{% endblock %}

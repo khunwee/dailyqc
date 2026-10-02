@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block crumb %}<span class="crumb">QC Inspection Report</span>{% endblock %}
+{% block title %}{{ L('ข้อมูลที่บันทึกแล้ว', 'Saved records') }}{% endblock %}
+{% block content %}
+{% set qs = 'p=custom&from=' ~ d1 ~ '&to=' ~ d2 ~ ('&customer=' ~ cid if cid else '') ~ ('&line=' ~ lid if lid else '') ~ ('&shift=' ~ sh if sh else '') ~ ('&q=' ~ (text | urlencode) if text else '') %}
+{% call ui.filterbar('/inspection/records', d1, d2, p, customers, cid, lines, lid, sh, True) %}
+  <div class="grow"><label>{{ L('ค้นหา Part', 'Find part') }}</label><input type="search" name="q" value="{{ text }}" placeholder="Part No. / Part Name"></div>
+{% endcall %}
+{% if sums %}{{ ui.tags(sums) }}{% endif %}
+<section class="panel">
+  <header><h2>{{ total | n }} {{ L('รายการ', 'records') }}</h2>
+    {% if 'insp.export' in perms %}<a class="btn" href="/inspection/export.xlsx?{{ qs }}">{{ L('Export Excel ตามช่วงนี้', 'Export this range to Excel') }}</a>{% endif %}</header>
+  <div class="body flush tblwrap">
+    {% if rows %}
+    <table class="t">
+      <thead><tr><th>{{ L('วันที่', 'Date') }}</th><th>{{ L('กะ', 'Shift') }}</th><th>Line</th><th>{{ L('ลูกค้า', 'Customer') }}</th><th>Part</th>
+        <th class="num">Production</th><th class="num">QC Check</th><th class="num">OK</th><th class="num">NG</th><th class="num">NC</th><th>{{ L('อาการเสีย / หมายเหตุ', 'Defects / remark') }}</th><th></th></tr></thead>
+      <tbody>{% for r in rows %}
+        <tr><td class="nowrap">{{ r.work_date.strftime('%d/%m/%Y') }}</td><td>{{ 'Day' if r.shift == 'D' else 'Night' }}</td><td class="nowrap">{{ r.line.name }}</td><td>{{ r.customer.code }}</td>
+          <td><b>{{ r.part.part_no }}</b><div class="mute small">{{ r.part.part_name }}</div></td>
+          <td class="num">{{ r.production | n }}</td><td class="num">{{ r.qc_check | n }}</td><td class="num c-ok">{{ r.ok | n }}</td>
+          <td class="num c-ng {{ 'hot' if r.ng }}">{{ r.ng | n }}</td><td class="num c-nc {{ 'hot' if r.nc }}">{{ r.nc | n }}</td>
+          <td class="small">{% for x in r.defects %}<span class="c-{{ x.kind | lower }}">{{ x.kind }}</span> {{ x.defect.name }} ×{{ x.qty }}{{ ', ' if not loop.last }}{% endfor %}
+            {% if r.remark %}<div class="mute">{{ r.remark }}</div>{% endif %}{% if r.is_demo %}<span class="chip">demo</span>{% endif %}</td>
+          <td class="nowrap noprint">{% if 'insp.entry' in perms or 'insp.edit_all' in perms %}
+            <a class="btn sm" href="/inspection/entry?date={{ r.work_date }}&shift={{ r.shift }}&line={{ r.line_id }}&customer={{ r.customer_id }}">{{ L('แก้ไข', 'Edit') }}</a>
+            <form method="post" action="/inspection/records/{{ r.id }}/delete" style="display:inline" data-confirm="{{ L('ลบผลตรวจของ', 'Delete the record for') }} {{ r.part.part_no }} {{ r.work_date.strftime('%d/%m') }} ?"><button class="btn sm danger">{{ L('ลบ', 'Delete') }}</button></form>{% endif %}</td></tr>
+      {% endfor %}</tbody>
+    </table>
+    {{ ui.pager(page, pages, total, qs) }}
+    {% else %}<div class="empty"><b>{{ L('ไม่พบข้อมูลในช่วงที่เลือก', 'Nothing found in this range') }}</b>{{ L('ลองขยายช่วงวันที่ หรือเอาตัวกรองออก', 'Try a wider date range or remove a filter.') }}</div>{% endif %}
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block crumb %}<span class="crumb">{{ L('ผู้ดูแลระบบ', 'Administration') }}</span>{% endblock %}
+{% block title %}{{ L('ตั้งค่าโปรแกรม', 'Settings') }}{% endblock %}
+{% block content %}
+<form method="post" style="max-width:920px">
+<section class="panel"><header><h2>{{ L('ทั่วไป', 'General') }}</h2></header><div class="body">
+  <div class="frow">
+    <div class="field"><label>{{ L('ชื่อโปรแกรม', 'Program name') }}</label><input type="text" name="app_name" value="{{ s.app_name }}"></div>
+    <div class="field"><label>{{ L('โรงงาน / บริษัท', 'Plant / company') }}</label><input type="text" name="company" value="{{ s.company }}"></div>
+    <div class="field"><label>{{ L('กะ Day เริ่ม', 'Day shift starts') }}</label><input type="time" name="shift_day_start" value="{{ s.shift_day_start }}"></div>
+    <div class="field"><label>{{ L('กะ Night เริ่ม', 'Night shift starts') }}</label><input type="time" name="shift_night_start" value="{{ s.shift_night_start }}"></div>
+  </div>
+  <div class="field"><label>{{ L('ที่อยู่เว็บของโปรแกรม (ใช้ทำลิงก์ในข้อความแจ้งเตือน)', 'Public address of this program (used for links in notifications)') }}</label>
+    <input type="url" name="base_url" value="{{ s.base_url }}" placeholder="https://daily-qc.onrender.com"></div>
+</div></section>
+
+<section class="panel"><header><h2>QC Inspection Report</h2></header><div class="body">
+  <div class="field" style="max-width:340px"><label>{{ L('QC แก้ไขข้อมูลย้อนหลังได้กี่วัน', 'Days QC may edit past records') }}</label><input type="number" name="insp_lock_days" min="0" value="{{ s.insp_lock_days }}">
+    <p class="hint">{{ L('เกินจากนี้ต้องเป็นผู้มีสิทธิ์แก้ไขทุก Line เท่านั้น ใส่ 0 ถ้าไม่ต้องการล็อก', 'After that only users with edit-all permission can change them. 0 = never lock.') }}</p></div>
+</div></section>
+
+<section class="panel"><header><h2>QC Report Quality Issue</h2></header><div class="body">
+  <div class="frow">
+    <div class="field"><label>{{ L('เก็บรูปขนาดเต็มไว้กี่วัน (สูงสุด', 'Days to keep full-size photos (max') }} {{ max_keep }})</label><input type="number" name="photo_retention_days" min="1" max="{{ max_keep }}" value="{{ s.photo_retention_days }}"></div>
+    <div class="field"><label>{{ L('ขนาดรูปด้านยาวสุด (pixel)', 'Longest photo side (px)') }}</label><input type="number" name="photo_max_px" min="800" max="2400" step="100" value="{{ s.photo_max_px }}"></div>
+  </div>
+  <label class="check"><input type="checkbox" name="keep_thumb" {{ 'checked' if s.keep_thumb }}>{{ L('เมื่อลบรูปเต็มแล้ว ให้เก็บรูปย่อขนาดเล็กไว้ดูอ้างอิง (ประมาณ 10 KB ต่อรูป)', 'Keep a small thumbnail for reference after the full photo is removed (about 10 KB each)') }}</label>
+  <p class="hint">{{ L('ข้อความของเคสทุกเคสเก็บไว้ตลอด ไม่ถูกลบ', 'Case text is never removed.') }}</p>
+  <div class="frow">
+    <div class="field"><label>{{ L('ตัวเลือก พบที่ (คั่นด้วยจุลภาค)', 'Found-at choices (comma separated)') }}</label><textarea name="found_at">{{ s.found_at | join(', ') }}</textarea></div>
+    <div class="field"><label>{{ L('ประเภทรายงาน (คั่นด้วยจุลภาค)', 'Report categories (comma separated)') }}</label><textarea name="categories">{{ s.categories | join(', ') }}</textarea></div>
+  </div>
+</div></section>
+
+<section class="panel"><header><h2>{{ L('สำรองข้อมูลอัตโนมัติบนเครื่อง PC', 'Automatic backup on a PC') }}</h2></header><div class="body">
+  <label class="check"><input type="checkbox" name="auto_local_backup" {{ 'checked' if s.auto_local_backup }}>{{ L('สร้างไฟล์สำรองเต็มชุดทุกวันในโฟลเดอร์ data/backups (ทำก่อนลบรูปที่ครบกำหนด)', 'Write a full backup into data/backups every day (before expired photos are removed)') }}</label>
+  <div class="field" style="max-width:260px"><label>{{ L('เก็บไฟล์สำรองล่าสุดกี่ไฟล์', 'How many backups to keep') }}</label><input type="number" name="local_backup_keep" min="1" value="{{ s.local_backup_keep }}"></div>
+  {% if is_hosted %}<p class="hint">{{ L('ตอนนี้รันบน Host ซึ่งไม่มีดิสก์ถาวร ข้อนี้จึงไม่ทำงาน ให้ดาวน์โหลดไฟล์สำรองจากเมนู สำรองข้อมูลและรูป แทน', 'This instance runs on a host without a permanent disk, so this does nothing here. Download backups from the Backup page instead.') }}</p>{% endif %}
+</div></section>
+<button class="btn pri">{{ L('บันทึกการตั้งค่า', 'Save settings') }}</button>
+</form>
+{% endblock %}

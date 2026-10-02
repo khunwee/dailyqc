@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block crumb %}<span class="crumb">{{ L('ผู้ดูแลระบบ', 'Administration') }}</span>{% endblock %}
+{% block title %}{{ L('ประวัติการใช้งาน', 'Activity log') }}{% endblock %}
+{% block content %}
+<div class="tabs"><a href="?tab=audit" class="{{ 'on' if tab != 'send' }}">{{ L('การใช้งานของผู้ใช้', 'User activity') }}</a><a href="?tab=send" class="{{ 'on' if tab == 'send' }}">{{ L('การส่งแจ้งเตือน', 'Notifications sent') }}</a></div>
+<section class="panel"><div class="body flush tblwrap"><table class="t">
+{% if tab == 'send' %}
+  <thead><tr><th>{{ L('เวลา', 'Time') }}</th><th>{{ L('ช่องทาง', 'Channel') }}</th><th>{{ L('เรื่อง', 'Event') }}</th><th>{{ L('ถึง', 'To') }}</th><th>{{ L('ผล', 'Result') }}</th></tr></thead>
+  <tbody>{% for l in rows %}<tr><td class="nowrap small">{{ l.at | dt }}</td><td>{{ l.channel }}</td><td>{{ l.event }}</td><td class="small">{{ l.target }}</td>
+    <td class="small">{% if l.ok %}<span class="chip closed">OK</span>{% else %}<span class="chip open">{{ L('ไม่สำเร็จ', 'failed') }}</span>{% endif %} {{ l.detail }}</td></tr>{% endfor %}</tbody>
+{% else %}
+  <thead><tr><th>{{ L('เวลา', 'Time') }}</th><th>{{ L('ผู้ใช้', 'User') }}</th><th>{{ L('การกระทำ', 'Action') }}</th><th>{{ L('รายละเอียด', 'Detail') }}</th></tr></thead>
+  <tbody>{% for l in rows %}<tr><td class="nowrap small">{{ l.at | dt }}</td><td>{{ l.username }}</td><td>{{ l.action }}</td><td class="small">{{ l.detail }}</td></tr>{% endfor %}</tbody>
+{% endif %}
+</table>{% if not rows %}<div class="empty">{{ L('ยังไม่มีรายการ', 'Nothing yet') }}</div>{% endif %}</div></section>
+<p class="hint">{{ L('แสดง 300 รายการล่าสุด', 'Showing the latest 300 entries') }}</p>
+{% endblock %}

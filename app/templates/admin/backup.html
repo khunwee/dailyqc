@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block crumb %}<span class="crumb">{{ L('ผู้ดูแลระบบ', 'Administration') }}</span>{% endblock %}
+{% block title %}{{ L('สำรองข้อมูลและรูป', 'Backup and photos') }}{% endblock %}
+{% block content %}
+{% macro mb(b) %}{{ '%.1f' | format(b / 1048576) }} MB{% endmacro %}
+<div class="tags" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+  <div class="tag"><div class="lab">{{ L('ขนาดฐานข้อมูล', 'Database size') }}</div><div class="val">{{ mb(dbsize) }}</div><div class="sub">{{ 'SQLite' if is_sqlite else 'PostgreSQL' }}</div></div>
+  <div class="tag"><div class="lab">{{ L('ข้อมูลข้อความ', 'Text records') }}</div><div class="val">{{ (counts.insp + counts.issues) | n }}</div><div class="sub">{{ L('ผลตรวจ', 'inspection') }} {{ counts.insp | n }}, {{ L('เคส', 'cases') }} {{ counts.issues | n }}</div></div>
+  <div class="tag"><div class="lab">{{ L('รูปขนาดเต็มที่เก็บอยู่', 'Full-size photos stored') }}</div><div class="val">{{ ps.total | n }}</div><div class="sub">{{ mb(ps.size) }}, {{ L('เก็บ', 'kept') }} {{ ps.keep }} {{ L('วัน', 'days') }}</div></div>
+  <div class="tag {{ 'nc' if ps.soon }}"><div class="lab">{{ L('จะถูกลบใน', 'Removed within') }} {{ ps.soon_days }} {{ L('วัน', 'days') }}</div><div class="val">{{ ps.soon | n }}</div><div class="sub">{{ mb(ps.soon_size) }}{% if ps.next_purge %}, {{ L('รูปเก่าสุดครบกำหนด', 'oldest expires') }} {{ ps.next_purge.strftime('%d/%m/%Y') }}{% endif %}</div></div>
+</div>
+
+<div class="grid g2" style="align-items:start">
+<section class="panel"><header><h2>{{ L('ดาวน์โหลดไฟล์สำรอง', 'Download a backup') }}</h2></header><div class="body">
+  <p style="margin-top:0">{{ L('ไฟล์ ZIP หนึ่งไฟล์ มีข้อมูลทุกตาราง รูปทุกรูปที่ยังเก็บอยู่ และไฟล์ Excel สำหรับเปิดอ่าน ใช้กู้คืนหรือย้ายไปเครื่องอื่นหรือขึ้น Host ได้',
+    'One ZIP with every table, every photo still stored, and Excel workbooks for reading. Use it to restore, or to move to another PC or a host.') }}</p>
+  <div class="inline"><a class="btn pri" href="/admin/backup/full.zip?photos=1">{{ L('สำรองทั้งหมด พร้อมรูป', 'Full backup with photos') }}</a>
+    <a class="btn" href="/admin/backup/full.zip?photos=0">{{ L('เฉพาะข้อมูลข้อความ', 'Text data only') }}</a></div>
+  <h3 style="margin:18px 0 6px">{{ L('เก็บรูปไว้ก่อนถูกลบ', 'Save photos before they are removed') }}</h3>
+  <p style="margin-top:0">{{ L('รูปจัดเป็นโฟลเดอร์ตามเดือนและเลขเคส พร้อมไฟล์ index.csv บอกว่ารูปไหนเป็นของเคสอะไร', 'Photos are foldered by month and case number, with an index.csv listing which photo belongs to which case.') }}</p>
+  <div class="inline"><a class="btn {{ 'pri' if ps.soon }}" href="/admin/backup/photos.zip?soon=1">{{ L('รูปที่ใกล้ครบกำหนด', 'Photos about to expire') }} ({{ ps.soon }})</a>
+    <a class="btn" href="/admin/backup/photos.zip">{{ L('รูปทั้งหมด', 'All photos') }} ({{ ps.total }})</a></div>
+  <p class="hint">{{ L('ลบรูปเต็มไปแล้ว', 'Full photos already removed') }} {{ ps.purged | n }} {{ L('รูป', '') }}{% if s.keep_thumb %}, {{ L('ยังเก็บรูปย่อไว้ดูอ้างอิง', 'thumbnails are kept') }}{% endif %}.
+    {{ L('ตั้งจำนวนวันและการเตือนได้ที่', 'Change the number of days under') }} <a href="/admin/settings">{{ L('ตั้งค่าโปรแกรม', 'Settings') }}</a> {{ L('และ', 'and') }} <a href="/admin/notify">{{ L('ช่องทางแจ้งเตือน', 'Notifications') }}</a></p>
+  <form method="post" action="/admin/backup/purge" data-confirm="{{ L('ลบรูปที่เกินกำหนดเก็บตอนนี้เลย? ควรดาวน์โหลดรูปไว้ก่อน', 'Remove expired photos now? Download them first if you need them.') }}"><button class="btn danger">{{ L('ลบรูปที่เกินกำหนดตอนนี้', 'Remove expired photos now') }}</button></form>
+</div></section>
+
+<div>
+<section class="panel"><header><h2>{{ L('ไฟล์สำรองอัตโนมัติบนเครื่องนี้', 'Automatic backups on this PC') }}</h2>
+  {% if not is_hosted %}<form method="post" action="/admin/backup/local-now"><button class="btn sm">{{ L('สร้างตอนนี้', 'Create now') }}</button></form>{% endif %}</header>
+  <div class="body flush">{% if local %}<table class="t"><tbody>{% for f in local[:10] %}<tr><td><a href="/admin/backup/local/{{ f.name }}">{{ f.name }}</a></td><td class="num">{{ mb(f.size) }}</td></tr>{% endfor %}</tbody></table>
+    {% else %}<div class="empty">{% if is_hosted %}{{ L('บน Host ไม่มีดิสก์ถาวร ให้ดาวน์โหลดไฟล์สำรองเก็บไว้เองเป็นระยะ', 'A host has no permanent disk. Download backups yourself from time to time.') }}
+      {% else %}{{ L('ยังไม่มีไฟล์ ระบบจะสร้างให้ทุกวันหลัง 00:30 ในโฟลเดอร์ data/backups', 'None yet. One is written every day after 00:30 into data/backups.') }}{% endif %}</div>{% endif %}</div>
+</section>
+
+<section class="panel"><header><h2>{{ L('กู้คืนจากไฟล์สำรอง', 'Restore from a backup') }}</h2></header><div class="body">
+  <form method="post" action="/admin/backup/restore" enctype="multipart/form-data">
+    <p style="margin-top:0" class="c-ng"><b>{{ L('ข้อมูลปัจจุบันทั้งหมดจะถูกแทนที่ด้วยข้อมูลในไฟล์', 'Everything currently in the database is replaced by the file.') }}</b></p>
+    <div class="field"><input type="file" name="file" accept=".zip" required></div>
+    <div class="field" style="max-width:300px"><label>{{ L('พิมพ์คำว่า RESTORE เพื่อยืนยัน', 'Type RESTORE to confirm') }}</label><input type="text" name="confirm" autocomplete="off" required></div>
+    <button class="btn danger">{{ L('กู้คืนข้อมูล', 'Restore') }}</button>
+  </form>
+</div></section>
+
+<section class="panel"><header><h2>{{ L('ข้อมูลตัวอย่างสำหรับทดสอบ', 'Demo data for testing') }}</h2></header><div class="body">
+  <p style="margin-top:0">{{ L('ใส่ผลตรวจสมมุติย้อนหลังประมาณ 3 สัปดาห์ และ 9 เคสจากไฟล์ Weekly report ตัวอย่าง (ย้ายวันที่มาเป็นสัปดาห์นี้) เพื่อดูหน้าจอ กราฟ และไฟล์ Export ก่อนใช้งานจริง ลบออกได้ในคลิกเดียว',
+    'Adds about three weeks of made-up inspection numbers and the nine cases from the sample weekly report (dated this week) so you can see the screens, charts and exports. One click removes it all.') }}</p>
+  <div class="inline">
+    <form method="post" action="/admin/demo/load"><button class="btn">{{ L('ใส่ข้อมูลตัวอย่าง', 'Load demo data') }}</button></form>
+    {% if counts.demo %}<form method="post" action="/admin/demo/remove" data-confirm="{{ L('ลบข้อมูลตัวอย่างทั้งหมด?', 'Remove all demo data?') }}"><button class="btn danger">{{ L('ลบข้อมูลตัวอย่าง', 'Remove demo data') }} ({{ counts.demo | n }})</button></form>{% endif %}
+  </div>
+</div></section>
+</div>
+</div>
+{% endblock %}

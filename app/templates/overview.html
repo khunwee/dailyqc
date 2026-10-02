@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block crumb %}<span class="crumb">{{ L('ภาพรวมงาน QC จากทุก Line', 'QC overview across all lines') }}</span>{% endblock %}
+{% block title %}{% if m == 'day' %}{{ d1 | d }}{% if is_today %} <span class="mute" style="font-size:.7em">{{ L('(วันนี้)', '(today)') }}</span>{% endif %}
+{% elif m == 'month' %}{{ L('เดือน', 'Month') }} {{ d1.strftime('%m/%Y') }}{% else %}{{ d1 | d }} – {{ d2 | d }}{% endif %}{% endblock %}
+{% block content %}
+<div class="inline noprint" style="margin-bottom:14px;justify-content:space-between">
+  <div class="seg">
+    <a href="/?m=day" class="{{ 'on' if m == 'day' }}">{{ L('รายวัน', 'Daily') }}</a>
+    <a href="/?m=month" class="{{ 'on' if m == 'month' }}">{{ L('รายเดือน', 'Monthly') }}</a>
+    <a href="/?m=range&p=last7" class="{{ 'on' if m == 'range' }}">{{ L('เลือกช่วงเวลา', 'Custom range') }}</a>
+  </div>
+  {% if m == 'day' %}
+  <form class="inline" method="get"><input type="hidden" name="m" value="day">
+    <a class="btn" href="/?m=day&d={{ prev }}">{{ L('วันก่อนหน้า', 'Previous day') }}</a>
+    <input type="date" name="d" value="{{ d1 }}" style="width:auto" onchange="this.form.submit()">
+    {% if not is_today %}<a class="btn" href="/?m=day&d={{ nxt }}">{{ L('วันถัดไป', 'Next day') }}</a><a class="btn link" href="/?m=day">{{ L('กลับมาวันนี้', 'Back to today') }}</a>{% endif %}
+  </form>
+  {% elif m == 'month' %}
+  <form class="inline" method="get"><input type="hidden" name="m" value="month">
+    <a class="btn" href="/?m=month&ym={{ prev }}">{{ L('เดือนก่อนหน้า', 'Previous month') }}</a>
+    <input type="month" name="ym" value="{{ d1.strftime('%Y-%m') }}" style="width:auto" onchange="this.form.submit()">
+    <a class="btn" href="/?m=month&ym={{ nxt }}">{{ L('เดือนถัดไป', 'Next month') }}</a>
+  </form>
+  {% else %}
+  <form class="inline" method="get"><input type="hidden" name="m" value="range">
+    {% for key in ['last7', 'this_week', 'last_week', 'last30', 'this_year'] %}{% for k, th, en in PERIODS if k == key %}<a class="btn sm {{ 'pri' if p == k }}" href="/?m=range&p={{ k }}">{{ L(th, en) }}</a>{% endfor %}{% endfor %}
+    <input type="date" name="from" value="{{ d1 }}" style="width:auto"><input type="date" name="to" value="{{ d2 }}" style="width:auto">
+    <button class="btn pri">{{ L('แสดง', 'Show') }}</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if stats %}
+{{ ui.tags(stats.total) }}
+<div class="grid g21">
+  <section class="panel">
+    <header><h2>{{ L('ผลตรวจแยกตามลูกค้า', 'Results by customer') }}</h2>
+      <a class="btn sm" href="/inspection/charts?p=custom&from={{ d1 }}&to={{ d2 }}">{{ L('ดูกราฟละเอียด', 'Detailed charts') }}</a>
+      {% if 'insp.export' in perms %}<a class="btn sm" href="/inspection/export.xlsx?p=custom&from={{ d1 }}&to={{ d2 }}">Excel</a>{% endif %}</header>
+    <div class="body flush tblwrap">
+      {% if stats.total.qc_check or stats.total.production %}
+      <table class="t">
+        <thead><tr><th>{{ L('ลูกค้า', 'Customer') }}</th><th class="num hide-sm">Production</th><th class="num">QC Check</th><th class="num">OK</th><th class="num">NG</th><th class="num">NC</th><th class="num">% OK</th><th style="width:16%" class="hide-sm">{{ L('สัดส่วน', 'Split') }}</th></tr></thead>
+        <tbody>{% for c in stats.customers %}
+          <tr><td><a href="/inspection/report?customer={{ c.id }}&p=custom&from={{ d1 }}&to={{ d2 }}"><b>{{ c.code }}</b></a></td>
+            <td class="num hide-sm">{{ c.production | n }}</td><td class="num">{{ c.qc_check | n }}</td><td class="num c-ok">{{ c.ok | n }}</td>
+            <td class="num c-ng {{ 'hot' if c.ng }}">{{ c.ng | n }}</td><td class="num c-nc {{ 'hot' if c.nc }}">{{ c.nc | n }}</td>
+            <td class="num">{{ pct(c.ok, c.qc_check) }}</td>
+            <td class="hide-sm">{% if c.qc_check %}<div class="bar"><i class="b-ok" style="width:{{ c.ok / c.qc_check * 100 }}%"></i><i class="b-ng" style="width:{{ c.ng / c.qc_check * 100 }}%"></i><i class="b-nc" style="width:{{ c.nc / c.qc_check * 100 }}%"></i></div>{% endif %}</td></tr>
+        {% endfor %}</tbody>
+        <tfoot><tr><td>{{ L('รวม', 'Total') }}</td><td class="num hide-sm">{{ stats.total.production | n }}</td><td class="num">{{ stats.total.qc_check | n }}</td><td class="num">{{ stats.total.ok | n }}</td><td class="num">{{ stats.total.ng | n }}</td><td class="num">{{ stats.total.nc | n }}</td><td class="num">{{ pct(stats.total.ok, stats.total.qc_check) }}</td><td class="hide-sm"></td></tr></tfoot>
+      </table>
+      {% else %}<div class="empty"><b>{{ L('ยังไม่มีผลตรวจในช่วงนี้', 'No inspection results for this period') }}</b>
+        {% if 'insp.entry' in perms %}<a href="/inspection/entry">{{ L('บันทึกผลตรวจของกะนี้', 'Enter results for this shift') }}</a>{% endif %}</div>{% endif %}
+    </div>
+  </section>
+
+  {% if m == 'day' %}
+  <section class="panel">
+    <header><h2>{{ L('สถานะการส่งข้อมูลของแต่ละ Line', 'Data received from each line') }}</h2></header>
+    <div class="body flush">
+      <table class="t"><thead><tr><th>Line</th><th>Day</th><th>Night</th></tr></thead><tbody>
+      {% for s in status %}<tr><td>{{ s.name }}</td>
+        {% for sh in ['D', 'N'] %}<td>{% if s[sh] %}<span class="chip closed">{{ s[sh].parts }} Part, Check {{ s[sh].check | n }}</span>
+          {% elif sh == 'N' and night_pending %}<span class="mute small">{{ L('ยังไม่ถึงกะ', 'not started') }}</span>
+          {% elif s.require %}<span class="chip open">{{ L('ยังไม่ส่ง', 'Not sent') }}</span>{% else %}<span class="mute">–</span>{% endif %}</td>{% endfor %}</tr>{% endfor %}
+      </tbody></table>
+    </div>
+  </section>
+  {% else %}
+  <section class="panel">
+    <header><h2>{{ L('อาการเสียที่พบมากที่สุด', 'Most frequent defects') }}</h2></header>
+    <div class="body flush">{% if stats.defects %}
+      <table class="t"><thead><tr><th>{{ L('อาการ', 'Defect') }}</th><th class="num">NG</th><th class="num">NC</th><th class="num">{{ L('สะสม', 'Cum.') }}</th></tr></thead><tbody>
+      {% for x in stats.defects[:9] %}<tr><td>{{ x.name }}</td><td class="num c-ng">{{ x.ng | n }}</td><td class="num c-nc">{{ x.nc | n }}</td><td class="num mute">{{ x.cum_pct }}%</td></tr>{% endfor %}</tbody></table>
+      {% else %}<div class="empty">{{ L('ยังไม่มีการระบุอาการเสียในช่วงนี้', 'No defect detail recorded in this period') }}</div>{% endif %}</div>
+  </section>
+  {% endif %}
+</div>
+
+<div class="grid g21">
+  <section class="panel">
+    <header><h2>{% if m == 'day' %}{{ L('แนวโน้ม 14 วันล่าสุด', 'Last 14 days') }}{% else %}{{ L('แนวโน้มผลตรวจ', 'Inspection trend') }}{% endif %}</h2></header>
+    <div class="body"><div class="chartbox"><canvas id="cTrend"></canvas></div></div>
+  </section>
+  <section class="panel">
+    <header><h2>{% if m == 'day' %}{{ L('อาการเสียของวันนี้', 'Defects on this day') }}{% else %}% NG / NC {{ L('ตามลูกค้า', 'by customer') }}{% endif %}</h2></header>
+    <div class="body">{% if m == 'day' and not stats.defects %}<div class="empty">{{ L('ยังไม่มีการระบุอาการเสีย', 'No defect detail recorded') }}</div>
+      {% else %}<div class="chartbox"><canvas id="cSide"></canvas></div>{% endif %}</div>
+  </section>
+</div>
+{% endif %}
+
+{% if istats %}
+<section class="panel">
+  <header><h2>Quality Issue {{ L('ในช่วงนี้', 'in this period') }}
+      <span class="mute small" style="font-family:var(--text);font-weight:400">{{ istats.total }} {{ L('เคส', 'cases') }}, NG {{ istats.ng_qty | n }} pcs.
+      {{ L('ภายใน', 'internal') }} {{ istats.source.internal.values() | sum }}, {{ L('ลูกค้าแจ้ง', 'customer') }} {{ istats.source.external.values() | sum }}</span></h2>
+    {% if open_issues %}<a class="chip open" href="/issues?p=this_year&status=open">{{ L('ยังไม่ปิดทั้งหมด', 'Not closed, all time') }} {{ open_issues }}</a>{% endif %}
+    {% if 'issue.create' in perms %}<a class="btn sm pri" href="/issues/new">{{ L('แจ้งปัญหา', 'Report an issue') }}</a>{% endif %}
+    <a class="btn sm" href="/issues/report?p=custom&from={{ d1 }}&to={{ d2 }}">{{ L('เปิดรายงาน', 'Open report') }}</a></header>
+  <div class="body flush">
+    {% for it in issues %}
+    <a class="issue-row" href="/issues/{{ it.id }}">
+      {% if it.photos %}<img class="thumb lg" src="/photo/{{ it.photos[0].id }}?t=1" alt="" loading="lazy">{% else %}<span class="thumb lg"></span>{% endif %}
+      <div><div class="ttl">{{ it.customer.code if it.customer else '' }} {{ it.part_no }} <span class="mute" style="font-weight:400">{{ it.part_name }}</span></div>
+        <div>{{ it.problem }}</div><div class="sub">{{ it.case_no }}, {{ it.found_date | d }}, {{ it.found_at }}{% if it.line %}, {{ it.line.name }}{% endif %}, NG {{ it.ng_qty }} pc.</div></div>
+      <div class="side">{{ ui.source_chip(it.source) }}<br>{{ ui.status_chip(it.status) }}</div>
+    </a>
+    {% else %}<div class="empty"><b>{{ L('ไม่มี Quality Issue ในช่วงนี้', 'No quality issue in this period') }}</b></div>{% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+{% if stats %}
+<script type="application/json" id="dTrend">{{ trend | tojson }}</script>
+<script type="application/json" id="dStats">{{ {'defects': stats.defects, 'customers': stats.customers} | tojson }}</script>
+<script>
+QC.charts.trend('cTrend', QC.data('dTrend'));
+const st = QC.data('dStats');
+{% if m == 'day' %}QC.charts.pareto('cSide', st.defects, {max: 8});
+{% else %}QC.charts.rateBars('cSide', st.customers.filter(c => c.qc_check));{% endif %}
+</script>
+{% endif %}
+{% endblock %}

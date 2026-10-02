@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block crumb %}<span class="crumb">{{ L('ผู้ดูแลระบบ', 'Administration') }}</span>{% endblock %}
+{% block title %}{{ L('ส่งรายงานอัตโนมัติ', 'Scheduled reports') }}{% endblock %}
+{% block content %}
+{% set DOW = [('0', 'จ.', 'Mon'), ('1', 'อ.', 'Tue'), ('2', 'พ.', 'Wed'), ('3', 'พฤ.', 'Thu'), ('4', 'ศ.', 'Fri'), ('5', 'ส.', 'Sat'), ('6', 'อา.', 'Sun')] %}
+{% if not smtp_ready %}<div class="flash warn">{{ L('ยังไม่ได้ตั้งค่า Email รายงานทางอีเมลจะยังส่งไม่ได้', 'E-mail is not set up yet, so e-mail reports cannot be sent.') }} <a href="/admin/notify">{{ L('ไปตั้งค่า', 'Set it up') }}</a></div>{% endif %}
+{% if ed or new %}
+{% set s = ed %}
+<form method="post" action="/admin/schedules/save" class="panel" style="max-width:920px">
+  <header><h2>{{ L('แก้ไขกำหนดการ', 'Edit schedule') if ed else L('เพิ่มกำหนดการใหม่', 'New schedule') }}</h2></header>
+  <div class="body">
+    <input type="hidden" name="id" value="{{ s.id if s else '' }}">
+    <div class="frow">
+      <div class="field" style="grid-column:span 2"><label>{{ L('ชื่อกำหนดการ (ใช้เป็นหัวเรื่องอีเมล)', 'Name (used as the e-mail subject)') }}</label><input type="text" name="name" value="{{ s.name if s else '' }}" required></div>
+      <div class="field"><label>{{ L('ชนิด', 'Type') }}</label><select name="kind" id="kind">
+        <option value="report" {{ 'selected' if not s or s.kind == 'report' }}>{{ L('ส่งรายงานสรุป', 'Send a summary report') }}</option>
+        <option value="missing" {{ 'selected' if s and s.kind == 'missing' }}>{{ L('เตือน Line ที่ยังไม่ส่งข้อมูล', 'Remind lines that have not sent data') }}</option></select></div>
+    </div>
+    <div class="frow" data-for="report">
+      <div class="field"><label>{{ L('เนื้อหา', 'Content') }}</label>
+        <label class="check"><input type="checkbox" name="include_insp" {{ 'checked' if not s or s.include_insp }}>QC Inspection Report</label>
+        <label class="check"><input type="checkbox" name="include_issue" {{ 'checked' if not s or s.include_issue }}>QC Report Quality Issue</label></div>
+      <div class="field"><label>{{ L('ข้อมูลช่วงไหน', 'Data period') }}</label><select name="period">{% for k, th, en in PERIODS %}<option value="{{ k }}" {{ 'selected' if (s and s.period == k) or (not s and k == 'yesterday') }}>{{ L(th, en) }}</option>{% endfor %}</select></div>
+      <div class="field"><label>{{ L('ไฟล์แนบ', 'Attachments') }}</label>
+        <label class="check"><input type="checkbox" name="attach_excel" {{ 'checked' if not s or s.attach_excel }}>{{ L('แนบไฟล์ Excel', 'Attach the Excel files') }}</label>
+        <label class="check"><input type="checkbox" name="with_photos" {{ 'checked' if not s or s.with_photos }}>{{ L('Excel ของ Quality Issue มีรูปด้วย', 'Quality Issue workbook includes photos') }}</label></div>
+    </div>
+    <div class="frow" data-for="missing" hidden>
+      <div class="field"><label>{{ L('ตรวจข้อมูลของกะ', 'Check which shift') }}</label><select name="shift"><option value="D" {{ 'selected' if not s or s.shift != 'N' }}>Day</option><option value="N" {{ 'selected' if s and s.shift == 'N' }}>Night</option></select></div>
+    </div>
+    <div class="frow">
+      <div class="field"><label>{{ L('ความถี่', 'How often') }}</label><select name="freq" id="freq">
+        {% for k, th, en in [('daily', 'ทุกวัน (ตามวันที่ติ๊ก)', 'Daily (on ticked days)'), ('weekly', 'ทุกสัปดาห์ (ตามวันที่ติ๊ก)', 'Weekly (on ticked days)'), ('monthly', 'ทุกเดือน', 'Monthly')] %}<option value="{{ k }}" {{ 'selected' if s and s.freq == k }}>{{ L(th, en) }}</option>{% endfor %}</select></div>
+      <div class="field"><label>{{ L('เวลาส่ง', 'Time') }}</label><input type="time" name="at_time" value="{{ s.at_time if s else '08:30' }}" required></div>
+      <div class="field" id="mday"><label>{{ L('วันที่ของเดือน (1-28)', 'Day of month (1-28)') }}</label><input type="number" name="monthday" min="1" max="28" value="{{ s.monthday if s else 1 }}"></div>
+    </div>
+    <div class="field" id="wdays"><label>{{ L('วันที่ส่ง', 'Days') }}</label><div class="inline">{% set cur = (s.weekdays if s else '0,1,2,3,4,5').split(',') %}
+      {% for v, th, en in DOW %}<label class="check" style="margin-right:8px"><input type="checkbox" name="weekdays" value="{{ v }}" {{ 'checked' if v in cur }}>{{ L(th, en) }}</label>{% endfor %}</div></div>
+    <div class="field"><label>{{ L('ส่งทางช่องทาง', 'Send through') }}</label><div class="inline">{% set chs = (s.channels if s else 'email').split(',') %}
+      {% for c, lab in CHANNELS %}<label class="check" style="margin-right:8px"><input type="checkbox" name="ch_{{ c }}" {{ 'checked' if c in chs }}>{{ lab }}</label>{% endfor %}</div></div>
+    <div class="frow">
+      <div class="field"><label>Email To</label><textarea name="to_addr" placeholder="assembly@company.com, manager@company.com" style="min-height:60px">{{ s.to_addr if s else '' }}</textarea></div>
+      <div class="field"><label>Email CC</label><textarea name="cc_addr" style="min-height:60px">{{ s.cc_addr if s else '' }}</textarea></div>
+    </div>
+    <label class="check"><input type="checkbox" name="enabled" {{ 'checked' if not s or s.enabled }}>{{ L('เปิดใช้กำหนดการนี้', 'This schedule is on') }}</label>
+    <div class="inline"><button class="btn pri">{{ L('บันทึกกำหนดการ', 'Save schedule') }}</button><a class="btn" href="/admin/schedules">{{ L('ยกเลิก', 'Cancel') }}</a></div>
+  </div>
+</form>
+{% endif %}
+
+<section class="panel">
+  <header><h2>{{ rows | length }} {{ L('กำหนดการ', 'schedules') }}</h2><a class="btn pri" href="/admin/schedules?new=1">{{ L('เพิ่มกำหนดการ', 'Add a schedule') }}</a></header>
+  <div class="body flush tblwrap"><table class="t">
+    <thead><tr><th>{{ L('ชื่อ', 'Name') }}</th><th>{{ L('เมื่อไร', 'When') }}</th><th>{{ L('เนื้อหา', 'Content') }}</th><th>{{ L('ส่งถึง', 'To') }}</th><th>{{ L('ผลครั้งล่าสุด', 'Last result') }}</th><th></th></tr></thead>
+    <tbody>{% for r in rows %}<tr>
+      <td><b>{{ r.name }}</b><br>{% if r.enabled %}<span class="chip closed">{{ L('เปิดใช้', 'on') }}</span>{% else %}<span class="chip">{{ L('ปิดอยู่', 'off') }}</span>{% endif %}</td>
+      <td class="nowrap">{{ r.at_time }}<br><span class="mute small">{% if r.freq == 'monthly' %}{{ L('ทุกวันที่', 'day') }} {{ r.monthday }}{% else %}{% for v, th, en in DOW if v in r.weekdays.split(',') %}{{ L(th, en) }} {% endfor %}{% endif %}</span></td>
+      <td class="small">{% if r.kind == 'missing' %}{{ L('เตือน Line ที่ยังไม่ส่ง กะ', 'Missing-data reminder, shift') }} {{ 'Day' if r.shift != 'N' else 'Night' }}
+        {% else %}{{ 'Inspection' if r.include_insp }}{{ ' + ' if r.include_insp and r.include_issue }}{{ 'Quality Issue' if r.include_issue }}<br>{% for k, th, en in PERIODS if k == r.period %}{{ L(th, en) }}{% endfor %}{{ ', Excel' if r.attach_excel }}{% endif %}</td>
+      <td class="small">{{ r.channels.replace(',', ', ') }}<br><span class="mute">{{ r.to_addr }}{% if r.cc_addr %}<br>cc {{ r.cc_addr }}{% endif %}</span></td>
+      <td class="small">{{ r.last_result or '-' }}</td>
+      <td class="nowrap"><form method="post" action="/admin/schedules/{{ r.id }}/run" style="display:inline" data-confirm="{{ L('ส่งรายงานนี้ทันที?', 'Send this now?') }}"><button class="btn sm">{{ L('ส่งตอนนี้', 'Send now') }}</button></form>
+        <a class="btn sm" href="/admin/schedules?edit={{ r.id }}">{{ L('แก้ไข', 'Edit') }}</a>
+        <form method="post" action="/admin/schedules/{{ r.id }}/delete" style="display:inline" data-confirm="{{ L('ลบกำหนดการนี้?', 'Delete this schedule?') }}"><button class="btn sm danger">{{ L('ลบ', 'Delete') }}</button></form></td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+
+<section class="panel" style="max-width:920px"><header><h2>{{ L('เรื่องที่ต้องรู้เมื่อใช้ Host ฟรี', 'If you run on a free host') }}</h2></header><div class="body">
+  <p style="margin-top:0">{{ L('Host ฟรีส่วนใหญ่จะหยุดโปรแกรมเมื่อไม่มีคนใช้งาน ทำให้รายงานไม่ถูกส่งตามเวลา วิธีแก้คือให้บริการปลุกจากภายนอก (เช่น cron-job.org หรือ UptimeRobot) เรียกที่อยู่นี้ทุก 5 ถึง 10 นาที โปรแกรมจะตื่นและส่งรายการที่ถึงเวลา (ย้อนหลังได้ไม่เกิน 12 ชั่วโมง)',
+    'Most free hosts put the app to sleep when nobody uses it, so timed reports are missed. Have an outside pinger (cron-job.org, UptimeRobot) call this address every 5 to 10 minutes: the app wakes up and sends whatever is due (up to 12 hours late).') }}</p>
+  <p><code id="cronurl"></code></p>
+  <p class="hint">{{ L('งานประจำวัน (ลบรูปที่ครบกำหนด เตือนรูปใกล้หมดอายุ สำรองข้อมูลบน PC) ทำงานหลัง 00:30 ของทุกวัน', 'Daily upkeep (removing expired photos, expiry reminders, PC backup) runs after 00:30 each day.') }}
+    {% if maint.last_result %} {{ L('ครั้งล่าสุด', 'Last run') }}: {{ maint.last_result }}{% endif %}</p>
+</div></section>
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById('cronurl').textContent = location.origin + '/cron/tick{{ '?key=' ~ cron_key if cron_key else '' }}';
+(() => {
+  const kind = document.getElementById('kind'), freq = document.getElementById('freq'); if (!kind) return;
+  const sync = () => {
+    document.querySelectorAll('[data-for]').forEach(el => el.hidden = el.dataset.for !== kind.value);
+    document.getElementById('mday').hidden = freq.value !== 'monthly';
+    document.getElementById('wdays').hidden = freq.value === 'monthly';
+  };
+  kind.addEventListener('change', sync); freq.addEventListener('change', sync); sync();
+})();
+</script>
+{% endblock %}

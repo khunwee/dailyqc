@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block crumb %}<span class="crumb">QC Inspection Report (OK-NC-NG)</span>{% endblock %}
+{% block title %}{{ L('รายงานส่ง Assembly', 'Report for Assembly') }}{% if cust %} : {{ cust.code }}{% endif %}{% endblock %}
+{% block content %}
+{% set qs = 'p=' ~ p ~ ('&from=' ~ d1 ~ '&to=' ~ d2 if p == 'custom' else '') ~ ('&line=' ~ lid if lid else '') %}
+<div class="tabs noprint">{% for c in customers %}<a href="?{{ qs }}&customer={{ c.id }}" class="{{ 'on' if cid == c.id }}">{{ c.code }}</a>{% endfor %}</div>
+{% call ui.filterbar('/inspection/report', d1, d2, p, None, cid, lines, lid, None, False, ['today', 'yesterday', 'last7', 'this_week', 'last_week', 'this_month', 'last_month']) %}
+  {% if cid %}<input type="hidden" name="customer" value="{{ cid }}">{% endif %}
+{% endcall %}
+<div class="inline noprint" style="margin-bottom:14px">
+  {% if 'insp.export' in perms %}<a class="btn pri" href="/inspection/export.xlsx?p=custom&from={{ d1 }}&to={{ d2 }}&customer={{ cid }}{% if lid %}&line={{ lid }}{% endif %}">{{ L('Export Excel ของ', 'Export Excel for') }} {{ cust.code if cust }}</a>
+  <a class="btn" href="/inspection/export.xlsx?p=custom&from={{ d1 }}&to={{ d2 }}{% if lid %}&line={{ lid }}{% endif %}">{{ L('Export Excel ทุกลูกค้า', 'Export Excel, all customers') }}</a>{% endif %}
+  <button class="btn" onclick="window.print()">{{ L('พิมพ์ / บันทึกเป็น PDF', 'Print / save as PDF') }}</button>
+</div>
+{{ ui.tags(st.total) }}
+<section class="panel">
+  <header><h2>{{ cust.code if cust }} {{ cust.name if cust }} <span class="mute small" style="font-family:var(--text);font-weight:400">{{ d1 | d }} – {{ d2 | d }}{% if mode == 'month' %}, {{ L('สรุปรายเดือนเพราะช่วงเวลายาวกว่า 31 วัน', 'by month because the range is longer than 31 days') }}{% endif %}</span></h2></header>
+  <div class="body flush tblwrap">
+    {% if parts %}
+    <table class="pivot">
+      <thead>
+        <tr><th rowspan="2">No.</th><th rowspan="2">Pic</th><th rowspan="2">Part Name / Part No.</th><th rowspan="2">Model</th><th rowspan="2">Status</th>
+          {% for k, lab in buckets.items() %}<th colspan="2">{{ lab }}</th>{% endfor %}<th rowspan="2">Total</th></tr>
+        <tr>{% for k in buckets %}<th>D</th><th>N</th>{% endfor %}</tr>
+      </thead>
+      <tbody>
+      {% for pt in parts %}{% set outer = loop %}
+        {% for key, lab, cls in [('production', 'Production', ''), ('qc_check', 'QC Check', ''), ('ok', 'OK', 'c-ok'), ('ng', 'NG', 'c-ng'), ('nc', 'NC', 'c-nc')] %}
+        <tr>{% if loop.first %}<td rowspan="5">{{ outer.index }}</td><td rowspan="5"><img class="thumb lg" src="/part-image/{{ pt.id }}?v={{ pt.image_ver }}" alt="" loading="lazy"></td>
+            <td rowspan="5" class="l"><b>{{ pt.part_no }}</b><br>{{ pt.part_name }}{% if pt.process %}<br><span class="mute">{{ pt.process }}</span>{% endif %}</td><td rowspan="5">{{ pt.model }}<br>{{ pt.variant }}</td>{% endif %}
+          <td class="st {{ cls }}">{{ lab }}</td>
+          {% for k in buckets %}{% for s in ['D', 'N'] %}{% set v = cell[pt.id].get((k, s), {}).get(key, 0) %}<td class="{{ cls if v else 'z' }}">{{ v if v else ('0' if key in ['production', 'qc_check'] and cell[pt.id].get((k, s)) else '') }}</td>{% endfor %}{% endfor %}
+          <td class="tot {{ cls }}">{{ totals[pt.id][key] | n }}</td></tr>
+        {% endfor %}
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<div class="empty"><b>{{ L('ลูกค้านี้ยังไม่มีผลตรวจในช่วงที่เลือก', 'No results for this customer in this range') }}</b></div>{% endif %}
+  </div>
+</section>
+
+{% if cols %}
+<div class="grid g2">
+<section class="panel">
+  <header><h2>{{ L('อาการเสียแยกตาม Part (NG + NC)', 'Defects by part (NG + NC)') }}</h2></header>
+  <div class="body flush tblwrap"><table class="pivot" style="width:100%">
+    <thead><tr><th>Item</th><th>Part no.</th>{% for id, name in cols.items() %}<th style="white-space:normal;min-width:74px">{{ name }}</th>{% endfor %}<th>Total</th></tr></thead>
+    <tbody>{% set ns = namespace(i=0) %}{% for pt in parts if pt.id in dcell %}{% set ns.i = ns.i + 1 %}
+      <tr><td>{{ ns.i }}</td><td class="l"><b>{{ pt.part_no }}</b></td>{% for id in cols %}<td class="{{ 'c-ng' if dcell[pt.id].get(id) else 'z' }}">{{ dcell[pt.id].get(id, '') }}</td>{% endfor %}<td class="tot">{{ dcell[pt.id].values() | sum }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+<section class="panel"><header><h2>Pareto</h2></header><div class="body"><div class="chartbox tall"><canvas id="cP"></canvas></div></div></section>
+</div>
+{% endif %}
+<section class="panel"><header><h2>{{ L('แนวโน้มในช่วงนี้', 'Trend in this range') }}</h2></header><div class="body"><div class="chartbox"><canvas id="cT"></canvas></div></div></section>
+{% endblock %}
+{% block scripts %}
+<script type="application/json" id="dSt">{{ {'trend': st.trend, 'defects': st.defects} | tojson }}</script>
+<script>const s = QC.data('dSt'); QC.charts.trend('cT', s.trend); if (s.defects.length) QC.charts.pareto('cP', s.defects, { max: 12 });</script>
+{% endblock %}

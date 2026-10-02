@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block crumb %}<span class="crumb"><a href="/issues">{{ L('รายการเคส', 'Cases') }}</a></span>{% endblock %}
+{% block title %}{{ it.case_no }}{% endblock %}
+{% block content %}
+{% set analyze = 'issue.analyze' in perms or 'issue.edit_all' in perms %}
+<div class="inline noprint" style="margin-bottom:14px">
+  {% if editable or analyze %}<a class="btn pri" href="/issues/{{ it.id }}/edit">{{ L('แก้ไข / ลงผลวิเคราะห์', 'Edit / add analysis') }}</a>{% endif %}
+  {% if analyze %}<form method="post" action="/issues/{{ it.id }}/status" class="inline">
+    {% for s, th, en in [('open', 'เปิดอยู่', 'Open'), ('in_progress', 'กำลังแก้ไข', 'In progress'), ('closed', 'ปิดเคส', 'Close case')] %}{% if s != it.status %}<button class="btn" name="status" value="{{ s }}">{{ L('เปลี่ยนเป็น', 'Set to') }} {{ L(th, en) }}</button>{% endif %}{% endfor %}</form>{% endif %}
+  <button class="btn" onclick="window.print()">{{ L('พิมพ์', 'Print') }}</button>
+  {% if editable %}<form method="post" action="/issues/{{ it.id }}/delete" data-confirm="{{ L('ลบเคสนี้พร้อมรูปทั้งหมด? กู้คืนไม่ได้', 'Delete this case and all its photos? This cannot be undone.') }}"><button class="btn danger">{{ L('ลบเคส', 'Delete case') }}</button></form>{% endif %}
+</div>
+<article class="case">
+  <header>{{ it.category }} : {{ it.case_no }} {{ ui.source_chip(it.source) }} {{ ui.status_chip(it.status) }}
+    <span>{{ L('แจ้งโดย', 'reported by') }} {{ (it.reporter.full_name or it.reporter.username) if it.reporter else '-' }}, {{ it.created_at | dt }}</span></header>
+  <div class="cbody">
+    <div>
+      <dl class="kv">
+        <dt>Customer</dt><dd><b>{{ it.customer.code if it.customer else '-' }}</b></dd>
+        <dt>Model</dt><dd>{{ it.model or '-' }}</dd>
+        <dt>Part Number</dt><dd><b>{{ it.part_no or '-' }}</b></dd>
+        <dt>Part Name</dt><dd>{{ it.part_name or '-' }}</dd>
+        <dt>Problem</dt><dd><b>{{ it.problem or '-' }}</b>{% if it.defect %}<br><span class="mute small">{{ it.defect.group_name }} / {{ it.defect.name }}</span>{% endif %}</dd>
+        <dt>Found Date</dt><dd>{{ it.found_date | d }}{% if it.shift %} ({{ 'Day' if it.shift == 'D' else 'Night' }}){% endif %}</dd>
+        <dt>Found At</dt><dd>{{ it.found_at or '-' }}{% if it.line %}, {{ it.line.name }}{% endif %}</dd>
+        <dt>NG Q'ty</dt><dd><b class="c-ng">{{ it.ng_qty }} pc.</b>{% if it.lot_no %} &nbsp; Lot {{ it.lot_no }}{% endif %}</dd>
+      </dl>
+      {% if it.action %}<h4>QA/QC-AHR Action</h4><p>{{ it.action }}</p>{% endif %}
+      <h4>1. Root Cause</h4><p>{{ it.root_cause or '-' }}</p>
+      <h4>2. Correction (Immediate Containment)</h4><p>{{ it.correction or '-' }}</p>
+      {% if it.plan_date or it.actual_date %}<p class="mute small">{% if it.plan_date %}Plan: {{ it.plan_date | d }} {% endif %}{% if it.actual_date %}Actual: {{ it.actual_date | d }}{% endif %}</p>{% endif %}
+      <h4>3. Prevention</h4><p>{{ it.prevention or '-' }}</p>
+      {% if it.responsible %}<p class="mute small" style="margin-top:8px">{{ L('ผู้รับผิดชอบ', 'Responsible') }}: {{ it.responsible }}</p>{% endif %}
+      {% if it.closed_at %}<p class="mute small">{{ L('ปิดเคสเมื่อ', 'Closed') }} {{ it.closed_at | dt }}</p>{% endif %}
+    </div>
+    <div>
+      <div class="photos">
+      {% for ph in it.photos %}
+        <div class="photo {{ 'gone' if ph.purged_at }}">
+          <img src="/photo/{{ ph.id }}?t=1" alt="" {% if not ph.purged_at %}data-full="/photo/{{ ph.id }}"{% endif %}>
+          {% if ph.tag %}<span class="stamp {{ ph.tag }}">{{ ph.tag }}</span>{% endif %}
+          <div class="meta noprint">
+            {% if ph.purged_at %}<span class="mute">{{ L('รูปเต็มถูกลบตามกำหนดแล้ว', 'Full photo removed by retention') }}</span>
+            {% elif editable %}
+            <form method="post" action="/issues/photo/{{ ph.id }}/tag"><select name="tag" onchange="this.form.submit()" style="min-height:28px;padding:1px 4px;width:auto;font-size:.82rem"><option value="">{{ L('ไม่มีป้าย', 'No tag') }}</option><option {{ 'selected' if ph.tag == 'NG' }}>NG</option><option {{ 'selected' if ph.tag == 'OK' }}>OK</option></select></form>
+            <form method="post" action="/issues/photo/{{ ph.id }}/delete" data-confirm="{{ L('ลบรูปนี้?', 'Delete this photo?') }}"><button class="btn sm danger">{{ L('ลบ', 'Delete') }}</button></form>
+            {% else %}<span class="mute">{{ ph.created_at.strftime('%d/%m/%Y') }}</span>{% endif %}
+          </div>
+        </div>
+      {% else %}<div class="empty" style="grid-column:1/-1"><b>{{ L('เคสนี้ยังไม่มีรูปหลักฐาน', 'No evidence photo yet') }}</b>{% if editable %}<a href="/issues/{{ it.id }}/edit">{{ L('เพิ่มรูป', 'Add photos') }}</a>{% endif %}</div>{% endfor %}
+      </div>
+      {% if it.photos %}<p class="hint noprint">{{ L('รูปขนาดเต็มเก็บไว้', 'Full-size photos are kept') }} {{ keep_days }} {{ L('วันนับจากวันที่อัปโหลด', 'days from upload') }}{% if editable and it.photos | length < max_photos %}, <a href="/issues/{{ it.id }}/edit">{{ L('เพิ่มรูป', 'add photos') }}</a>{% endif %}</p>{% endif %}
+    </div>
+  </div>
+</article>
+{% endblock %}

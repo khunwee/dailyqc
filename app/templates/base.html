@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14213D">
+<script>try{if(localStorage.getItem("qcRail")==="closed")document.documentElement.classList.add("rail-closed")}catch(e){}</script>
+<title>{% block pagetitle %}{{ self.title() | striptags | trim }}{% endblock %} | {{ g.app_name }}</title>
+<link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/css/app.css?v={{ version }}">
+</head>
+<body>
+{% macro nav(href, th, en, exact=False) %}<a href="{{ href }}" class="{{ 'on' if (path == href if exact else path.startswith(href)) }}">{{ L(th, en) }}</a>{% endmacro %}
+<aside class="rail" id="rail" aria-label="Menu">
+  <button class="rail-x" id="railClose" aria-label="{{ L('ปิดเมนู', 'Close menu') }}"><svg width="18" height="18" viewBox="0 0 18 18"><path d="M3 3l12 12M15 3L3 15" stroke="currentColor" stroke-width="2"/></svg></button>
+  <a class="brand" href="/"><span class="brand-mark">QC</span><span>Daily QC<br>Operation Report<small>{{ g.company }}</small></span></a>
+  <nav>
+    {% if 'overview.view' in perms or 'insp.view' in perms or 'issue.view' in perms %}{{ nav('/', 'ภาพรวมรายวัน / รายเดือน', 'Daily / monthly overview', True) }}{% endif %}
+    {% if 'insp.view' in perms or 'insp.entry' in perms %}
+    <div class="nav-group">QC Inspection Report</div>
+    {% if 'insp.entry' in perms or 'insp.edit_all' in perms %}{{ nav('/inspection/entry', 'บันทึกผลตรวจประจำกะ', 'Enter shift results') }}{% endif %}
+    {% if 'insp.view' in perms %}
+    {{ nav('/inspection/records', 'ข้อมูลที่บันทึกแล้ว', 'Saved records') }}
+    {{ nav('/inspection/report', 'รายงานส่ง Assembly', 'Report for Assembly') }}
+    {{ nav('/inspection/charts', 'กราฟวิเคราะห์', 'Charts') }}
+    {% endif %}{% endif %}
+    {% if 'issue.view' in perms or 'issue.create' in perms %}
+    <div class="nav-group">QC Report Quality Issue</div>
+    {% if 'issue.create' in perms %}{{ nav('/issues/new', 'แจ้งปัญหาที่พบ', 'Report an issue') }}{% endif %}
+    {% if 'issue.view' in perms %}
+    <a href="/issues" class="{{ 'on' if path == '/issues' or (path.startswith('/issues/') and path.split('/')[2].isdigit()) }}">{{ L('รายการเคส', 'Cases') }}</a>
+    {{ nav('/issues/report', 'รายงานสรุปพร้อมรูป', 'Summary report') }}
+    {{ nav('/issues/charts', 'กราฟวิเคราะห์', 'Charts') }}
+    {% endif %}{% endif %}
+    {% if 'master.manage' in perms or 'admin' in perms %}
+    <div class="nav-group">{{ L('ข้อมูลหลัก', 'Master data') }}</div>
+    {{ nav('/admin/parts', 'Part และรูป Part', 'Parts and pictures') }}
+    {{ nav('/admin/master/customers', 'ลูกค้า', 'Customers') }}
+    {{ nav('/admin/master/lines', 'Line ผลิต', 'Lines') }}
+    {{ nav('/admin/master/defects', 'อาการเสีย', 'Defect types') }}
+    {% endif %}
+    {% if 'admin' in perms %}
+    <div class="nav-group">{{ L('ผู้ดูแลระบบ', 'Administration') }}</div>
+    {{ nav('/admin/users', 'ผู้ใช้งาน', 'Users') }}
+    {{ nav('/admin/roles', 'สิทธิ์การเข้าถึง', 'Permissions') }}
+    {{ nav('/admin/notify', 'ช่องทางแจ้งเตือน', 'Notifications') }}
+    {{ nav('/admin/schedules', 'ส่งรายงานอัตโนมัติ', 'Scheduled reports') }}
+    {{ nav('/admin/backup', 'สำรองข้อมูลและรูป', 'Backup and photos') }}
+    {{ nav('/admin/settings', 'ตั้งค่าโปรแกรม', 'Settings') }}
+    {{ nav('/admin/logs', 'ประวัติการใช้งาน', 'Activity log') }}
+    {% endif %}
+  </nav>
+  {% if user %}
+  <div class="rail-foot">
+    <b>{{ user.full_name or user.username }}</b>{{ user.role.name if user.role else '' }}
+    <div class="row">
+      <a href="/account">{{ L('บัญชีของฉัน', 'My account') }}</a>
+      <a href="/lang/{{ 'en' if lang == 'th' else 'th' }}">{{ 'English' if lang == 'th' else 'ภาษาไทย' }}</a>
+    </div>
+    <div class="row">
+      <a href="/logout">{{ L('ออกจากระบบ', 'Log out') }}</a>
+      {% if allow_shutdown and 'admin' in perms %}
+      <form method="post" action="/system/shutdown" data-confirm="{{ L('ปิดโปรแกรมบนเครื่องนี้? ผู้ใช้ทุกคนจะเข้าใช้งานไม่ได้จนกว่าจะเปิด start.bat อีกครั้ง', 'Shut the program down on this PC? Nobody can use it until start.bat is run again.') }}">
+        <button class="off">{{ L('ปิดโปรแกรม', 'Shut down') }}</button></form>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</aside>
+
+<div class="main">
+  <header class="topbar">
+    <button class="iconbtn menu-btn" id="menuBtn" aria-label="Menu"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M2 5h16M2 10h16M2 15h16" stroke="currentColor" stroke-width="2"/></svg></button>
+    <h1>{% block crumb %}{% endblock %}{% block title %}{% endblock %}</h1>
+    <div class="clock"><b id="clock"></b>{{ today | d }}</div>
+    {% if user %}<button class="iconbtn" id="bell" aria-label="{{ L('การแจ้งเตือน', 'Notifications') }}">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 2.5a5 5 0 00-5 5v3.2L3.5 14h13L15 10.7V7.5a5 5 0 00-5-5zM8 16.5a2 2 0 004 0" stroke="currentColor" stroke-width="1.6"/></svg>
+      <span class="badge" id="bellBadge" {{ 'hidden' if not unread }}>{{ unread }}</span></button>
+    <details class="usermenu" id="userMenu">
+      <summary class="iconbtn" aria-label="{{ L('บัญชีผู้ใช้', 'Account menu') }}"><span class="avatar">{{ (user.full_name or user.username)[:1] | upper }}</span></summary>
+      <div class="pop">
+        <div class="who"><b>{{ user.full_name or user.username }}</b>{{ user.role.name if user.role else '' }}</div>
+        <a href="/account">{{ L('บัญชีของฉัน / เปลี่ยนรหัสผ่าน', 'My account / password') }}</a>
+        <a href="/lang/{{ 'en' if lang == 'th' else 'th' }}">{{ 'English' if lang == 'th' else 'ภาษาไทย' }}</a>
+        <a href="/logout">{{ L('ออกจากระบบ', 'Log out') }}</a>
+        {% if allow_shutdown and 'admin' in perms %}
+        <form method="post" action="/system/shutdown" data-confirm="{{ L('ปิดโปรแกรมบนเครื่องนี้? ผู้ใช้ทุกคนจะเข้าใช้งานไม่ได้จนกว่าจะเปิด start.bat อีกครั้ง', 'Shut the program down on this PC? Nobody can use it until start.bat is run again.') }}">
+          <button class="off">{{ L('ปิดโปรแกรม', 'Shut down') }}</button></form>
+        {% endif %}
+      </div>
+    </details>{% endif %}
+  </header>
+  <main class="content">
+    {% if no_db_warning and 'admin' in perms %}<div class="flash err">{{ L('โปรแกรมนี้รันบน Host แต่ยังไม่ได้ตั้งค่า DATABASE_URL ข้อมูลจึงเก็บในดิสก์ชั่วคราวและจะหายเมื่อ Host รีสตาร์ต ให้ตั้งค่าฐานข้อมูล PostgreSQL ตามคู่มือก่อนใช้งานจริง',
+      'This instance runs on a host without DATABASE_URL, so data sits on a temporary disk and is lost when the host restarts. Set up PostgreSQL as described in the README before real use.') }}</div>{% endif %}
+    {% for kind, msg in flashes %}<div class="flash {{ kind }}" role="status">{{ msg }}</div>{% endfor %}
+    {% block content %}{% endblock %}
+  </main>
+  <div class="pagefoot">{{ g.app_name }} v{{ version }}</div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="Notifications">
+  <header><h2>{{ L('การแจ้งเตือน', 'Notifications') }}</h2><button class="btn sm" id="drawerClose">{{ L('ปิด', 'Close') }}</button></header>
+  <div class="list" id="noticeList"></div>
+</aside>
+<div class="lightbox" id="lightbox"><img alt=""></div>
+<script src="/static/vendor/chart.umd.min.js"></script>
+<script src="/static/js/app.js?v={{ version }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

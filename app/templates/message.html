@@ -1,0 +1,7 @@
+{% if bare %}<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title>
+<link rel="stylesheet" href="/static/css/app.css"></head><body><div style="max-width:560px;margin:14vh auto;padding:0 20px">
+<div class="panel"><div class="body"><h1 style="margin-bottom:8px">{{ title }}</h1><p>{{ text }}</p></div></div></div></body></html>
+{% else %}{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}<div class="panel" style="max-width:640px"><div class="body"><p style="margin-top:0">{{ text }}</p>
+{% if back %}<a class="btn pri" href="{{ back }}">{{ L('กลับ', 'Back') }}</a>{% endif %}</div></div>{% endblock %}{% endif %}

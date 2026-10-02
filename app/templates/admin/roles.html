@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block crumb %}<span class="crumb">{{ L('ผู้ดูแลระบบ', 'Administration') }}</span>{% endblock %}
+{% block title %}{{ L('สิทธิ์การเข้าถึงของแต่ละกลุ่ม', 'Permissions by role') }}{% endblock %}
+{% block content %}
+<form method="post" action="/admin/roles/save" class="panel">
+  <header><h2>{{ L('ติ๊กสิ่งที่แต่ละกลุ่มทำได้', 'Tick what each role may do') }}</h2><button class="btn pri">{{ L('บันทึกสิทธิ์', 'Save permissions') }}</button></header>
+  <div class="body flush tblwrap"><table class="t">
+    <thead><tr><th style="min-width:280px">{{ L('สิทธิ์', 'Permission') }}</th>{% for r in roles %}<th style="text-align:center;min-width:120px">
+      {% if r.code == 'admin' %}{{ r.name }}{% else %}<input type="text" name="name_{{ r.id }}" value="{{ r.name }}" style="min-height:32px;padding:3px 6px;text-align:center">{% endif %}
+      <div class="mute small" style="font-family:var(--text);font-weight:400">{{ counts.get(r.id, 0) }} {{ L('คน', 'users') }}</div></th>{% endfor %}</tr></thead>
+    <tbody>{% for code, th, en in PERMS %}<tr><td>{{ L(th, en) }}</td>
+      {% for r in roles %}<td style="text-align:center"><input type="checkbox" name="p_{{ r.id }}_{{ code }}" {{ 'checked' if code in rperms[r.id] }} {{ 'disabled' if r.code == 'admin' or code == 'admin' }}></td>{% endfor %}</tr>{% endfor %}
+    </tbody></table></div>
+  <div class="body" style="border-top:1px solid var(--rule-2)">
+    <div class="frow" style="max-width:640px"><div class="field"><label>{{ L('เพิ่มกลุ่มใหม่: รหัส (อังกฤษ)', 'New role: code') }}</label><input type="text" name="new_code" placeholder="leader"></div>
+      <div class="field"><label>{{ L('ชื่อกลุ่ม', 'Role name') }}</label><input type="text" name="new_name" placeholder="Line Leader"></div></div>
+    <p class="hint">{{ L('กลุ่ม Admin มีทุกสิทธิ์เสมอ สิทธิ์ผู้ดูแลระบบให้ได้เฉพาะกลุ่ม Admin', 'Admin always has everything. Only the Admin role can administer the system.') }}</p>
+  </div>
+</form>
+<div class="inline">{% for r in roles if not r.is_system and not counts.get(r.id) %}<form method="post" action="/admin/roles/{{ r.id }}/delete" data-confirm="{{ L('ลบกลุ่ม', 'Delete role') }} {{ r.name }} ?"><button class="btn sm danger">{{ L('ลบกลุ่ม', 'Delete role') }} {{ r.name }}</button></form>{% endfor %}</div>
+{% endblock %}

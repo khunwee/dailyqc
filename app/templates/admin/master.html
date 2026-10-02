@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block crumb %}<span class="crumb">{{ L('ข้อมูลหลัก', 'Master data') }}</span>{% endblock %}
+{% block title %}{{ L(m.title[0], m.title[1]) }}{% endblock %}
+{% block content %}
+<form method="post" class="panel">
+  <header><h2>{{ rows | length }} {{ L('รายการ', 'rows') }}</h2><button class="btn pri">{{ L('บันทึกทั้งหมด', 'Save all') }}</button></header>
+  <div class="body flush tblwrap"><table class="t">
+    <thead><tr>{% for name, label, typ, w in m.fields %}<th>{{ label }}</th>{% endfor %}<th></th></tr></thead>
+    <tbody>
+    {% macro cell(r, key, name, typ, w) %}
+      {% set v = r[name] if r else None %}
+      {% if typ == 'bool' %}<input type="checkbox" name="{{ name }}_{{ key }}" {{ 'checked' if v or not r }}>
+      {% elif typ == 'color' %}<input type="color" name="{{ name }}_{{ key }}" value="{{ v or '#1F4FD8' }}">
+      {% elif typ == 'customer' %}<select name="{{ name }}_{{ key }}" style="min-width:{{ w }}ch"><option value="">{{ L('ไม่กำหนด', 'Not set') }}</option>{% for c in customers %}<option value="{{ c.id }}" {{ 'selected' if v == c.id }}>{{ c.code }}</option>{% endfor %}</select>
+      {% else %}<input type="{{ typ }}" name="{{ name }}_{{ key }}" value="{{ v if v is not none else '' }}" style="min-width:{{ w + 3 }}ch">{% endif %}
+    {% endmacro %}
+    {% for r in rows %}<tr><input type="hidden" name="row_{{ r.id }}" value="1">
+      {% for name, label, typ, w in m.fields %}<td>{{ cell(r, r.id, name, typ, w) }}</td>{% endfor %}
+      <td><button class="btn sm danger" formaction="/admin/master/{{ kind }}/{{ r.id }}/delete" formmethod="post" data-confirm="{{ L('ลบรายการนี้?', 'Delete this row?') }}">{{ L('ลบ', 'Delete') }}</button></td></tr>{% endfor %}
+    <tr style="background:#FFFBEE">{% for name, label, typ, w in m.fields %}<td>{{ cell(None, 'new', name, typ, w) }}</td>{% endfor %}<td class="mute small">{{ L('แถวใหม่', 'new row') }}</td></tr>
+    </tbody></table></div>
+  <div class="body"><p class="hint" style="margin:0">{{ L('แก้ไขในตารางได้เลย แล้วกดบันทึกทั้งหมด แถวสีเหลืองคือรายการใหม่ รายการที่มีข้อมูลอ้างอิงอยู่จะถูกปิดการใช้งานแทนการลบ',
+    'Edit in place, then Save all. The yellow row adds a new entry. Rows that are referenced are disabled instead of deleted.') }}</p></div>
+</form>
+{% endblock %}

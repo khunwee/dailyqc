@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block crumb %}<span class="crumb">QC Inspection Report</span>{% endblock %}
+{% block title %}{{ L('กราฟวิเคราะห์ผลตรวจ', 'Inspection charts') }}{% endblock %}
+{% block content %}
+{% set qs = 'p=' ~ p ~ ('&from=' ~ d1 ~ '&to=' ~ d2 if p == 'custom' else '') ~ ('&line=' ~ lid if lid else '') ~ ('&shift=' ~ sh if sh else '') ~ '&group=' ~ group %}
+<div class="tabs noprint">
+  <a href="?{{ qs }}" class="{{ 'on' if not cid }}">{{ L('ทุกลูกค้า', 'All customers') }}</a>
+  {% for c in customers %}<a href="?{{ qs }}&customer={{ c.id }}" class="{{ 'on' if cid == c.id }}">{{ c.code }}</a>{% endfor %}
+</div>
+{% call ui.filterbar('/inspection/charts', d1, d2, p, None, cid, lines, lid, sh, True, extra='&group=' ~ group) %}
+  {% if cid %}<input type="hidden" name="customer" value="{{ cid }}">{% endif %}
+  <div><label>{{ L('แบ่งช่วงกราฟ', 'Group by') }}</label><select name="group">
+    {% for k, th, en in [('auto', 'อัตโนมัติ', 'Automatic'), ('day', 'รายวัน', 'Day'), ('week', 'รายสัปดาห์', 'Week'), ('month', 'รายเดือน', 'Month')] %}<option value="{{ k }}" {{ 'selected' if group == k }}>{{ L(th, en) }}</option>{% endfor %}</select></div>
+{% endcall %}
+
+{% if not (st.total.qc_check or st.total.production) %}
+<div class="panel"><div class="empty"><b>{{ L('ไม่มีผลตรวจในช่วงที่เลือก', 'No inspection results in this range') }}</b>{{ L('เลือกช่วงเวลาอื่น หรือดูลูกค้าอื่น', 'Pick another period or customer.') }}</div></div>
+{% else %}
+{{ ui.tags(st.total) }}
+<div class="grid g2">
+  <section class="panel"><header><h2>OK / NG / NC {{ L('และอัตราของเสีย', 'and reject rate') }}</h2>
+    {% if 'insp.export' in perms %}<a class="btn sm" href="/inspection/export.xlsx?p=custom&from={{ d1 }}&to={{ d2 }}{% if cid %}&customer={{ cid }}{% endif %}{% if lid %}&line={{ lid }}{% endif %}{% if sh %}&shift={{ sh }}{% endif %}">Excel</a>{% endif %}</header>
+    <div class="body"><div class="chartbox"><canvas id="c1"></canvas></div></div></section>
+  <section class="panel"><header><h2>Production {{ L('เทียบกับ', 'vs') }} QC Check</h2></header><div class="body"><div class="chartbox"><canvas id="c2"></canvas></div></div></section>
+  <section class="panel"><header><h2>Pareto {{ L('อาการเสีย (NG + NC)', 'of defects (NG + NC)') }}</h2></header>
+    <div class="body">{% if st.defects %}<div class="chartbox tall"><canvas id="c3"></canvas></div>{% else %}<div class="empty">{{ L('ยังไม่มีการระบุอาการเสียในช่วงนี้ ให้ QC กดปุ่ม อาการเสีย ตอนบันทึกผลตรวจ', 'No defect detail yet. QC adds it with the Defects button on the entry sheet.') }}</div>{% endif %}</div></section>
+  <section class="panel"><header><h2>{{ L('Part ที่มี NG / NC มากที่สุด', 'Parts with the most NG / NC') }}</h2></header><div class="body"><div class="chartbox tall"><canvas id="c4"></canvas></div></div></section>
+  {% if not cid %}
+  <section class="panel"><header><h2>{{ L('เทียบแต่ละลูกค้า', 'Customer comparison') }}</h2></header><div class="body"><div class="chartbox"><canvas id="c5"></canvas></div></div></section>
+  <section class="panel"><header><h2>NG + NC {{ L('ของแต่ละลูกค้าตามช่วงเวลา', 'per customer over time') }}</h2></header><div class="body"><div class="chartbox"><canvas id="c6"></canvas></div></div></section>
+  {% endif %}
+  <section class="panel"><header><h2>{{ L('เทียบแต่ละ Line', 'By line') }}</h2></header><div class="body"><div class="chartbox"><canvas id="c7"></canvas></div></div></section>
+  <section class="panel"><header><h2>{{ L('กะ Day เทียบกับ Night', 'Day vs night shift') }}</h2></header>
+    <div class="body flush"><div class="tblwrap"><table class="t"><thead><tr><th>{{ L('กะ', 'Shift') }}</th><th class="num">Production</th><th class="num">QC Check</th><th class="num">OK</th><th class="num">NG</th><th class="num">NC</th><th class="num">% NG</th><th class="num">% NC</th></tr></thead><tbody>
+      {% for k, lab in [('D', 'Day'), ('N', 'Night')] %}{% set s = st.by_shift.get(k) %}{% if s %}<tr><td><b>{{ lab }}</b></td><td class="num">{{ s.production | n }}</td><td class="num">{{ s.qc_check | n }}</td><td class="num c-ok">{{ s.ok | n }}</td><td class="num c-ng">{{ s.ng | n }}</td><td class="num c-nc">{{ s.nc | n }}</td><td class="num">{{ pct(s.ng, s.qc_check, 2) }}</td><td class="num">{{ pct(s.nc, s.qc_check, 2) }}</td></tr>{% endif %}{% endfor %}
+    </tbody></table></div><div class="body"><div class="chartbox short"><canvas id="c8"></canvas></div></div></div></section>
+</div>
+
+<section class="panel">
+  <header><h2>{{ L('สรุปราย Part', 'Summary by part') }}</h2></header>
+  <div class="body flush tblwrap"><table class="t">
+    <thead><tr><th>Part No.</th><th>Part Name</th><th>Model</th><th class="num">Production</th><th class="num">QC Check</th><th class="num">OK</th><th class="num">NG</th><th class="num">NC</th><th class="num">% NG</th><th class="num">% NC</th></tr></thead>
+    <tbody>{% for x in st.by_part %}<tr><td><b>{{ x.part_no }}</b></td><td>{{ x.part_name }}</td><td>{{ x.model }}</td><td class="num">{{ x.production | n }}</td><td class="num">{{ x.qc_check | n }}</td>
+      <td class="num c-ok">{{ x.ok | n }}</td><td class="num c-ng {{ 'hot' if x.ng }}">{{ x.ng | n }}</td><td class="num c-nc {{ 'hot' if x.nc }}">{{ x.nc | n }}</td><td class="num">{{ pct(x.ng, x.qc_check, 2) }}</td><td class="num">{{ pct(x.nc, x.qc_check, 2) }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script type="application/json" id="dSt">{{ st | tojson }}</script>
+<script>
+(() => {
+  const s = QC.data('dSt'), ch = QC.charts, C = QC.C;
+  if (!s.total.qc_check && !s.total.production) return;
+  ch.trend('c1', s.trend); ch.prodCheck('c2', s.trend);
+  if (s.defects.length) ch.pareto('c3', s.defects, { max: 14 });
+  ch.hbad('c4', s.by_part.filter(p => p.ng + p.nc > 0).slice(0, 12), 'part_no');
+  const cu = s.customers.filter(c => c.qc_check || c.production);
+  ch.hstack('c5', cu);
+  ch.lines('c6', s.trend.labels, s.cust_trend.map(c => ({ label: c.code, data: c.ng_nc, color: c.color })));
+  ch.rateBars('c7', s.by_line, 'name');
+  const sh = ['D', 'N'].filter(k => s.by_shift[k]);
+  ch.grouped('c8', sh.map(k => k === 'D' ? 'Day' : 'Night'), [
+    { label: '% NG', data: sh.map(k => s.by_shift[k].ng_pct), color: C.ng }, { label: '% NC', data: sh.map(k => s.by_shift[k].nc_pct), color: C.nc }]);
+})();
+</script>
+{% endblock %}

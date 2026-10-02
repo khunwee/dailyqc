@@ -1,0 +1,46 @@
+{# Shared pieces: period filter bar, KPI tags, pager #}
+{% macro filterbar(action, d1, d2, p, customers=None, cid=None, lines=None, lid=None, sh=None, show_shift=False, presets=None, extra=None) %}
+<div class="filter noprint">
+  <div class="presets">
+    {% for key, th, en in PERIODS %}{% if not presets or key in presets %}
+    <a href="{{ action }}?p={{ key }}{% if cid %}&customer={{ cid }}{% endif %}{% if lid %}&line={{ lid }}{% endif %}{% if sh %}&shift={{ sh }}{% endif %}{{ extra or '' }}" class="{{ 'on' if p == key }}">{{ L(th, en) }}</a>
+    {% endif %}{% endfor %}
+  </div>
+  <form method="get" action="{{ action }}">
+    <input type="hidden" name="p" value="custom">
+    <div class="fields">
+      <div><label>{{ L('ตั้งแต่วันที่', 'From') }}</label><input type="date" name="from" value="{{ d1 }}"></div>
+      <div><label>{{ L('ถึงวันที่', 'To') }}</label><input type="date" name="to" value="{{ d2 }}"></div>
+      {% if customers is not none %}<div><label>{{ L('ลูกค้า', 'Customer') }}</label><select name="customer">
+        <option value="">{{ L('ทุกลูกค้า', 'All customers') }}</option>
+        {% for c in customers %}<option value="{{ c.id }}" {{ 'selected' if cid == c.id }}>{{ c.code }}</option>{% endfor %}</select></div>{% endif %}
+      {% if lines is not none %}<div><label>Line</label><select name="line">
+        <option value="">{{ L('ทุก Line', 'All lines') }}</option>
+        {% for l in lines %}<option value="{{ l.id }}" {{ 'selected' if lid == l.id }}>{{ l.name }}</option>{% endfor %}</select></div>{% endif %}
+      {% if show_shift %}<div><label>{{ L('กะ', 'Shift') }}</label><select name="shift">
+        <option value="">{{ L('ทั้งสองกะ', 'Both shifts') }}</option><option value="D" {{ 'selected' if sh == 'D' }}>Day</option><option value="N" {{ 'selected' if sh == 'N' }}>Night</option></select></div>{% endif %}
+      {{ caller() if caller else '' }}
+      <div><button class="btn pri">{{ L('แสดงข้อมูล', 'Show') }}</button></div>
+    </div>
+  </form>
+</div>
+{% endmacro %}
+
+{% macro tags(t) %}
+<div class="tags">
+  <div class="tag"><div class="lab">Production</div><div class="val">{{ t.production | n }}</div><div class="sub">{{ L('ชิ้นที่ผลิต', 'pieces produced') }}</div></div>
+  <div class="tag"><div class="lab">QC Check</div><div class="val">{{ t.qc_check | n }}</div><div class="sub">{{ pct(t.qc_check, t.production, 0) }} {{ L('ของยอดผลิต', 'of production') }}</div></div>
+  <div class="tag ok"><div class="lab">OK</div><div class="val">{{ t.ok | n }}</div><div class="sub">{{ pct(t.ok, t.qc_check, 2) }}</div></div>
+  <div class="tag ng"><div class="lab">NG</div><div class="val">{{ t.ng | n }}</div><div class="sub">{{ pct(t.ng, t.qc_check, 2) }}</div></div>
+  <div class="tag nc"><div class="lab">NC</div><div class="val">{{ t.nc | n }}</div><div class="sub">{{ pct(t.nc, t.qc_check, 2) }}</div></div>
+</div>
+{% endmacro %}
+
+{% macro pager(page, pages, total, qs) %}
+{% if pages > 1 %}<div class="pager noprint"><span class="mute small">{{ total | n }} {{ L('รายการ', 'rows') }}, {{ L('หน้า', 'page') }} {{ page }}/{{ pages }}</span>
+  {% if page > 1 %}<a class="btn sm" href="?{{ qs }}&page={{ page - 1 }}">{{ L('ก่อนหน้า', 'Previous') }}</a>{% endif %}
+  {% if page < pages %}<a class="btn sm" href="?{{ qs }}&page={{ page + 1 }}">{{ L('ถัดไป', 'Next') }}</a>{% endif %}</div>{% endif %}
+{% endmacro %}
+
+{% macro status_chip(s) %}<span class="chip {{ s }}">{{ {'open': L('เปิดอยู่', 'Open'), 'in_progress': L('กำลังแก้ไข', 'In progress'), 'closed': L('ปิดแล้ว', 'Closed')}.get(s, s) }}</span>{% endmacro %}
+{% macro source_chip(s) %}<span class="chip {{ s }}">{{ L('ลูกค้าแจ้ง', 'Customer') if s == 'external' else L('พบภายใน', 'Internal') }}</span>{% endmacro %}

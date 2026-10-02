@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block crumb %}<span class="crumb">QC Report Quality Issue</span>{% endblock %}
+{% block title %}{{ L('กราฟวิเคราะห์ปัญหาคุณภาพ', 'Quality issue charts') }}{% endblock %}
+{% block content %}
+{% set fx = ('&source=' ~ f.source if f.source else '') ~ '&group=' ~ group %}
+{% call ui.filterbar('/issues/charts', d1, d2, p, customers, f.customer_id, lines, f.line_id, extra=fx) %}
+  <div><label>{{ L('แหล่งที่พบ', 'Found by') }}</label><select name="source"><option value="">{{ L('ทั้งหมด', 'All') }}</option><option value="internal" {{ 'selected' if f.source == 'internal' }}>{{ L('พบภายใน', 'Internal') }}</option><option value="external" {{ 'selected' if f.source == 'external' }}>{{ L('ลูกค้าแจ้ง', 'Customer') }}</option></select></div>
+  <div><label>{{ L('แบ่งช่วงกราฟ', 'Group by') }}</label><select name="group">
+    {% for k, th, en in [('auto', 'อัตโนมัติ', 'Automatic'), ('day', 'รายวัน', 'Day'), ('week', 'รายสัปดาห์', 'Week'), ('month', 'รายเดือน', 'Month')] %}<option value="{{ k }}" {{ 'selected' if group == k }}>{{ L(th, en) }}</option>{% endfor %}</select></div>
+{% endcall %}
+{% if not st.total %}
+<div class="panel"><div class="empty"><b>{{ L('ไม่มี Quality Issue ในช่วงที่เลือก', 'No quality issue in this range') }}</b>{{ L('เลือกช่วงเวลาอื่นด้านบน', 'Pick another period above.') }}</div></div>
+{% else %}
+<div class="tags" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+  <div class="tag"><div class="lab">{{ L('เคสทั้งหมด', 'Cases') }}</div><div class="val">{{ st.total }}</div><div class="sub">NG {{ st.ng_qty | n }} pcs.</div></div>
+  <div class="tag"><div class="lab">{{ L('พบภายใน', 'Internal') }}</div><div class="val">{{ st.source.internal.values() | sum }}</div></div>
+  <div class="tag ng"><div class="lab">{{ L('ลูกค้าแจ้ง', 'From customer') }}</div><div class="val">{{ st.source.external.values() | sum }}</div></div>
+  <div class="tag nc"><div class="lab">{{ L('ยังไม่ปิด', 'Not closed') }}</div><div class="val">{{ st.status.get('open', 0) + st.status.get('in_progress', 0) }}</div><div class="sub">{{ L('ปิดแล้ว', 'closed') }} {{ st.status.get('closed', 0) }}</div></div>
+</div>
+<div class="grid g2">
+  <section class="panel"><header><h2>{{ L('จำนวนเคสตามช่วงเวลา', 'Cases over time') }}</h2></header><div class="body"><div class="chartbox"><canvas id="c1"></canvas></div></div></section>
+  <section class="panel"><header><h2>{{ L('พบภายใน เทียบกับ ลูกค้าแจ้ง แยกลูกค้า', 'Internal vs customer, by customer') }}</h2></header><div class="body"><div class="chartbox"><canvas id="c2"></canvas></div></div></section>
+  <section class="panel"><header><h2>Pareto {{ L('อาการเสีย (จำนวนเคส)', 'of defects (cases)') }}</h2></header><div class="body"><div class="chartbox tall"><canvas id="c3"></canvas></div></div></section>
+  <section class="panel"><header><h2>{{ L('อาการเสียแยกตามลูกค้า', 'Defect by customer') }}</h2></header><div class="body"><div class="chartbox tall"><canvas id="c4"></canvas></div></div></section>
+  <section class="panel"><header><h2>{{ L('สถานะเคส', 'Case status') }}</h2></header><div class="body"><div class="chartbox short"><canvas id="c5"></canvas></div></div></section>
+  <section class="panel"><header><h2>{{ L('จุดที่ตรวจพบ', 'Where it was found') }}</h2></header><div class="body"><div class="chartbox short"><canvas id="c6"></canvas></div></div></section>
+</div>
+<div class="grid g2">
+  <section class="panel"><header><h2>{{ L('Part ที่เกิดปัญหาบ่อย', 'Parts with repeated issues') }}</h2></header><div class="body flush"><table class="t">
+    <thead><tr><th>Part No.</th><th>Part Name</th><th class="num">{{ L('เคส', 'Cases') }}</th><th class="num">NG pcs</th></tr></thead>
+    <tbody>{% for x in st.parts %}<tr><td><b>{{ x.part_no }}</b></td><td>{{ x.name }}</td><td class="num {{ 'c-ng hot' if x.cases > 1 }}">{{ x.cases }}</td><td class="num">{{ x.qty | n }}</td></tr>{% endfor %}</tbody></table></div></section>
+  <section class="panel"><header><h2>{{ L('จำนวนเคสตาม Line', 'Cases by line') }}</h2></header><div class="body">{% if st.by_line %}<div class="chartbox short"><canvas id="c7"></canvas></div>{% else %}<div class="empty">{{ L('เคสในช่วงนี้ไม่ได้ระบุ Line', 'No line recorded on these cases') }}</div>{% endif %}</div></section>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script type="application/json" id="dSt">{{ st | tojson }}</script>
+<script>
+(() => {
+  const s = QC.data('dSt'), C = QC.C, ch = QC.charts;
+  if (!s.total) return;
+  QC.mk('c1', { data: { labels: s.trend.labels, datasets: [
+      { type: 'bar', label: '{{ L('พบภายใน', 'Internal') }}', data: s.trend.internal, backgroundColor: C.blue, stack: 's' },
+      { type: 'bar', label: '{{ L('ลูกค้าแจ้ง', 'Customer') }}', data: s.trend.external, backgroundColor: C.ng, stack: 's' },
+      { type: 'line', label: 'NG pcs', data: s.trend.qty, yAxisID: 'q', borderColor: C.ink, backgroundColor: C.ink, borderWidth: 2, pointRadius: 2.5 }] },
+    options: { interaction: { mode: 'index', intersect: false }, scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } }, q: { position: 'right', beginAtZero: true, grid: { drawOnChartArea: false } } } } });
+  ch.grouped('c2', s.customers, [
+    { label: 'AAPICO ({{ L('ภายใน', 'internal') }})', data: s.customers.map(c => s.source.internal[c]), color: C.blue },
+    { label: 'Customer', data: s.customers.map(c => s.source.external[c]), color: C.ng }]);
+  ch.pareto('c3', s.pareto, { single: true, label: '{{ L('เคส', 'Cases') }}', max: 12 });
+  const top = s.pareto.slice(0, 12);
+  QC.mk('c4', { type: 'bar', data: { labels: top.map(p => p.name), datasets: s.customers.map(c => ({ label: c, data: top.map(p => p.by_customer[c] || 0), backgroundColor: s.colors[c] })) },
+    options: { indexAxis: 'y', scales: { x: { stacked: true, beginAtZero: true, ticks: { precision: 0 } }, y: { stacked: true, grid: { display: false }, ticks: { autoSkip: false } } } } });
+  ch.donut('c5', ['{{ L('เปิดอยู่', 'Open') }}', '{{ L('กำลังแก้ไข', 'In progress') }}', '{{ L('ปิดแล้ว', 'Closed') }}'], [s.status.open || 0, s.status.in_progress || 0, s.status.closed || 0], [C.ng, C.nc, C.ok]);
+  ch.grouped('c6', s.found_at.map(x => x[0]), [{ label: '{{ L('เคส', 'Cases') }}', data: s.found_at.map(x => x[1]), color: C.check }]);
+  if (s.by_line.length) ch.grouped('c7', s.by_line.map(x => x[0]), [{ label: '{{ L('เคส', 'Cases') }}', data: s.by_line.map(x => x[1]), color: C.check }]);
+})();
+</script>
+{% endblock %}

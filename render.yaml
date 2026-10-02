@@ -1,0 +1,23 @@
+# Render blueprint: New + > Blueprint > pick this repository.
+services:
+  - type: web
+    name: daily-qc-report
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: DATABASE_URL          # paste the Neon (or other PostgreSQL) connection string
+        sync: false
+      - key: ADMIN_PASSWORD        # password of the first admin account
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: CRON_KEY
+        generateValue: true
+      - key: TZ_OFFSET_HOURS
+        value: "7"

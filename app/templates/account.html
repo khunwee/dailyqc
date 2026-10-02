@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{{ L('บัญชีของฉัน', 'My account') }}{% endblock %}
+{% block content %}
+<form method="post" class="panel" style="max-width:640px">
+  <header><h2>{{ user.username }} <span class="mute small">{{ user.role.name if user.role else '' }}</span></h2></header>
+  <div class="body">
+    <div class="frow">
+      <div class="field"><label>{{ L('ชื่อที่แสดง', 'Display name') }}</label><input type="text" name="full_name" value="{{ user.full_name }}"></div>
+      <div class="field"><label>Email</label><input type="email" name="email" value="{{ user.email }}"></div>
+      <div class="field"><label>{{ L('ภาษา', 'Language') }}</label><select name="lang"><option value="th" {{ 'selected' if user.lang != 'en' }}>ไทย</option><option value="en" {{ 'selected' if user.lang == 'en' }}>English</option></select></div>
+    </div>
+    <h3 style="margin:10px 0 8px">{{ L('เปลี่ยนรหัสผ่าน', 'Change password') }}{% if user.must_change %} <span class="chip open">{{ L('ต้องเปลี่ยนก่อนใช้งาน', 'required') }}</span>{% endif %}</h3>
+    <div class="frow">
+      <div class="field"><label>{{ L('รหัสผ่านเดิม', 'Current password') }}</label><input type="password" name="old_password" autocomplete="current-password"></div>
+      <div class="field"><label>{{ L('รหัสผ่านใหม่ (6 ตัวขึ้นไป)', 'New password (6+ characters)') }}</label><input type="password" name="new_password" autocomplete="new-password"></div>
+      <div class="field"><label>{{ L('รหัสผ่านใหม่อีกครั้ง', 'Repeat new password') }}</label><input type="password" name="new_password2" autocomplete="new-password"></div>
+    </div>
+    <p class="hint">{{ L('ถ้าไม่ต้องการเปลี่ยนรหัสผ่าน ปล่อยสามช่องนี้ว่างไว้', 'Leave these three empty to keep your password.') }}</p>
+    <button class="btn pri">{{ L('บันทึก', 'Save') }}</button>
+  </div>
+</form>
+{% if user.lines() %}<p class="mute small">{{ L('Line ที่รับผิดชอบ กำหนดโดย Admin', 'Your lines are assigned by an admin') }}</p>{% endif %}
+{% endblock %}

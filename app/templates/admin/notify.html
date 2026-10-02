@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block crumb %}<span class="crumb">{{ L('ผู้ดูแลระบบ', 'Administration') }}</span>{% endblock %}
+{% block title %}{{ L('ช่องทางแจ้งเตือน', 'Notifications') }}{% endblock %}
+{% block content %}
+{% macro chans(prefix, sel) %}<div class="inline">{% for c, lab in CHANNELS %}<label class="check" style="margin-right:8px"><input type="checkbox" name="{{ prefix }}_ch_{{ c }}" {{ 'checked' if c in sel }}>{{ lab }}</label>{% endfor %}</div>{% endmacro %}
+<form method="post" id="nf">
+<div class="grid g2" style="align-items:start">
+<div>
+<section class="panel"><header><h2>Email</h2><span class="chip {{ 'closed' if email_ok else '' }}">{{ L('ตั้งค่าแล้ว', 'configured') if email_ok else L('ยังไม่ตั้งค่า', 'not set') }}</span></header><div class="body">
+  <div class="field"><label>{{ L('วิธีส่งอีเมล', 'How to send e-mail') }}</label><select name="smtp_method" id="mailMethod">
+    <option value="smtp" {{ 'selected' if smtp.method == 'smtp' }}>SMTP {{ L('(Gmail, Outlook, เมลบริษัท) เหมาะกับการรันบน PC', '(Gmail, Outlook, company mail): for a PC') }}</option>
+    <option value="brevo" {{ 'selected' if smtp.method == 'brevo' }}>Brevo API {{ L('ผ่าน HTTPS ใช้ได้บน Host ฟรี', 'over HTTPS: works on free hosts') }}</option>
+    <option value="resend" {{ 'selected' if smtp.method == 'resend' }}>Resend API {{ L('ผ่าน HTTPS ใช้ได้บน Host ฟรี', 'over HTTPS: works on free hosts') }}</option></select>
+    {% if is_hosted %}<p class="hint c-ng">{{ L('Host ฟรีอย่าง Render ปิด port SMTP 25 / 465 / 587 ให้เลือก Brevo API หรือ Resend API', 'Free hosts such as Render block SMTP ports 25 / 465 / 587. Choose Brevo API or Resend API.') }}</p>{% endif %}</div>
+  <div data-mail="smtp">
+  <div class="frow">
+    <div class="field"><label>SMTP server</label><input type="text" name="smtp_host" value="{{ smtp.host }}" placeholder="smtp.gmail.com"></div>
+    <div class="field"><label>Port</label><input type="number" name="smtp_port" value="{{ smtp.port }}"></div>
+    <div class="field"><label>{{ L('การเข้ารหัส', 'Security') }}</label><select name="smtp_security">{% for k, lab in [('starttls', 'STARTTLS (587, 2525)'), ('ssl', 'SSL (465)'), ('none', L('ไม่เข้ารหัส', 'None'))] %}<option value="{{ k }}" {{ 'selected' if smtp.security == k }}>{{ lab }}</option>{% endfor %}</select></div>
+  </div>
+  <div class="frow">
+    <div class="field"><label>{{ L('บัญชีผู้ส่ง (user)', 'Account (user)') }}</label><input type="text" name="smtp_user" value="{{ smtp.user }}" autocomplete="off"></div>
+    <div class="field"><label>{{ L('รหัสผ่าน / App password', 'Password / app password') }}</label><input type="password" name="smtp_password" placeholder="{{ L('บันทึกไว้แล้ว เว้นว่างถ้าไม่เปลี่ยน', 'saved, leave empty to keep') if smtp.password else '' }}" autocomplete="new-password"></div>
+  </div>
+  <p class="hint">{{ L('Gmail: เปิด 2-Step Verification แล้วสร้าง App password มาใส่ในช่องรหัสผ่าน', 'Gmail: turn on 2-Step Verification, then create an App password and use it here.') }}</p>
+  </div>
+  <div data-mail="api" hidden>
+    <div class="field"><label>API key</label><input type="password" name="smtp_api_key" placeholder="{{ L('บันทึกไว้แล้ว เว้นว่างถ้าไม่เปลี่ยน', 'saved, leave empty to keep') if smtp.api_key else '' }}" autocomplete="new-password"></div>
+    <p class="hint">{{ L('Brevo: สมัครฟรี (300 ฉบับต่อวัน) แล้วสร้าง API key ที่เมนู SMTP & API และยืนยันอีเมลผู้ส่งที่ Senders  /  Resend: ต้องยืนยันโดเมนของบริษัทก่อนจึงส่งถึงผู้รับทั่วไปได้',
+      'Brevo: free plan (300 e-mails a day); create an API key under SMTP & API and verify the sender address under Senders.  /  Resend: a verified company domain is needed to send to arbitrary recipients.') }}</p>
+  </div>
+  <div class="frow">
+    <div class="field"><label>{{ L('อีเมลผู้ส่งที่แสดง', 'From address') }}</label><input type="text" name="smtp_sender" value="{{ smtp.sender }}" placeholder="qc-report@company.com"></div>
+    <div class="field"><label>{{ L('ชื่อผู้ส่ง', 'From name') }}</label><input type="text" name="smtp_sender_name" value="{{ smtp.sender_name }}"></div>
+  </div>
+</div></section>
+
+<section class="panel"><header><h2>LINE</h2></header><div class="body">
+  <div class="field"><label>Channel access token (Messaging API)</label><input type="password" name="line_token" placeholder="{{ L('บันทึกไว้แล้ว', 'saved') if line.token else '' }}" autocomplete="new-password"></div>
+  <div class="field"><label>{{ L('ส่งถึง User ID / Group ID (คั่นด้วยจุลภาค)', 'Send to user ID / group ID (comma separated)') }}</label><input type="text" name="line_to" value="{{ line.to }}"></div>
+  <p class="hint">{{ L('LINE Notify ปิดบริการแล้ว โปรแกรมนี้ใช้ LINE Official Account (Messaging API) แบบ push message', 'LINE Notify has been shut down; this uses push messages from a LINE Official Account (Messaging API).') }}</p>
+</div></section>
+
+<section class="panel"><header><h2>Telegram</h2></header><div class="body"><div class="frow">
+  <div class="field"><label>Bot token</label><input type="password" name="telegram_token" placeholder="{{ L('บันทึกไว้แล้ว', 'saved') if tg.token else '' }}" autocomplete="new-password"></div>
+  <div class="field"><label>Chat ID {{ L('(หลายค่าคั่นด้วยจุลภาค)', '(comma separated)') }}</label><input type="text" name="telegram_chat_id" value="{{ tg.chat_id }}"></div></div>
+  <p class="hint">{{ L('Telegram ส่งรูปเคสและแนบไฟล์ Excel ได้', 'Telegram can carry the case photo and the Excel file.') }}</p></div></section>
+
+<section class="panel"><header><h2>Discord / Webhook</h2></header><div class="body">
+  <div class="field"><label>Discord webhook URL</label><input type="text" name="discord_url" value="{{ dc.url }}"></div>
+  <div class="field"><label>{{ L('Webhook ทั่วไป (Microsoft Teams, ระบบอื่น) รับ JSON {title, text}', 'Generic webhook (Microsoft Teams or other) receiving JSON {title, text}') }}</label><input type="text" name="webhook_url" value="{{ wh.url }}"></div>
+</div></section>
+</div>
+
+<div>
+<section class="panel"><header><h2>{{ L('เมื่อมี Quality Issue ใหม่', 'When a quality issue is reported') }}</h2></header><div class="body">
+  <label class="check"><input type="checkbox" name="issue_new_enabled" {{ 'checked' if ev.issue_new.enabled }}>{{ L('แจ้งเตือนทันทีพร้อมรูปแรกของเคส', 'Notify at once, with the first photo') }}</label>
+  {{ chans('issue_new', ev.issue_new.channels) }}
+  <div class="frow"><div class="field"><label>Email To</label><input type="text" name="issue_new_to" value="{{ ev.issue_new.to }}"></div><div class="field"><label>Email CC</label><input type="text" name="issue_new_cc" value="{{ ev.issue_new.cc }}"></div></div>
+</div></section>
+<section class="panel"><header><h2>{{ L('เมื่อ NG + NC สูงเกินเกณฑ์', 'When NG + NC is above the limit') }}</h2></header><div class="body">
+  <label class="check"><input type="checkbox" name="ng_alert_enabled" {{ 'checked' if ev.ng_alert.enabled }}>{{ L('ตรวจทุกครั้งที่ QC บันทึกผลตรวจ', 'Checked every time QC saves a sheet') }}</label>
+  <div class="frow"><div class="field"><label>{{ L('เกณฑ์ (NG + NC) / QC Check เป็น %', 'Limit: (NG + NC) / QC Check, %') }}</label><input type="number" step="0.1" min="0" name="ng_alert_threshold" value="{{ ev.ng_alert.threshold_pct }}"></div>
+    <div class="field"><label>{{ L('นับเฉพาะเมื่อ QC Check ตั้งแต่ (ชิ้น)', 'Only when QC Check is at least (pcs)') }}</label><input type="number" min="0" name="ng_alert_min" value="{{ ev.ng_alert.min_check }}"></div></div>
+  {{ chans('ng_alert', ev.ng_alert.channels) }}
+  <div class="frow"><div class="field"><label>Email To</label><input type="text" name="ng_alert_to" value="{{ ev.ng_alert.to }}"></div><div class="field"><label>Email CC</label><input type="text" name="ng_alert_cc" value="{{ ev.ng_alert.cc }}"></div></div>
+</div></section>
+<section class="panel"><header><h2>{{ L('ก่อนรูปจะถูกลบตามกำหนด', 'Before photos are removed') }}</h2></header><div class="body">
+  <label class="check"><input type="checkbox" name="photo_expiry_enabled" {{ 'checked' if ev.photo_expiry.enabled }}>{{ L('เตือน Admin ให้สำรองรูปไว้ก่อน', 'Remind admins to back the photos up first') }}</label>
+  <div class="field" style="max-width:240px"><label>{{ L('เตือนล่วงหน้ากี่วัน', 'Days in advance') }}</label><input type="number" min="1" max="30" name="photo_expiry_days" value="{{ ev.photo_expiry.days_before }}"></div>
+  {{ chans('photo_expiry', ev.photo_expiry.channels) }}
+  <div class="frow"><div class="field"><label>Email To</label><input type="text" name="photo_expiry_to" value="{{ ev.photo_expiry.to }}"></div><div class="field"><label>Email CC</label><input type="text" name="photo_expiry_cc" value="{{ ev.photo_expiry.cc }}"></div></div>
+  <label class="check"><input type="checkbox" name="photo_expiry_mail_zip" {{ 'checked' if ev.photo_expiry.mail_zip }}>{{ L('แนบไฟล์ ZIP ของรูปที่ใกล้ครบกำหนดไปกับอีเมลด้วย (ถ้าไม่เกิน 18 MB)', 'Attach a ZIP of the expiring photos to the e-mail (when under 18 MB)') }}</label>
+</div></section>
+<p class="hint">{{ L('หลายอีเมลคั่นด้วยจุลภาค การส่งรายงานตามเวลา ตั้งที่เมนู ส่งรายงานอัตโนมัติ', 'Separate several addresses with commas. Timed reports are set under Scheduled reports.') }}</p>
+<button class="btn pri" style="min-height:46px;padding:8px 26px">{{ L('บันทึกการแจ้งเตือน', 'Save notifications') }}</button>
+</div>
+</div>
+</form>
+
+<section class="panel" style="margin-top:16px">
+  <header><h2>{{ L('ทดสอบส่ง (บันทึกการตั้งค่าก่อน)', 'Send a test (save first)') }}</h2></header>
+  <div class="body inline">
+    <form method="post" action="/admin/notify/test/email" class="inline"><input type="text" name="to" placeholder="{{ L('อีเมลผู้รับทดสอบ', 'test recipient') }}" value="{{ user.email }}" style="width:230px"><button class="btn">Email</button></form>
+    {% for c, lab in CHANNELS if c != 'email' %}<form method="post" action="/admin/notify/test/{{ c }}"><button class="btn">{{ lab }}</button></form>{% endfor %}
+  </div>
+  <div class="body flush tblwrap" style="border-top:1px solid var(--rule-2)"><table class="t">
+    <thead><tr><th>{{ L('เวลา', 'Time') }}</th><th>{{ L('ช่องทาง', 'Channel') }}</th><th>{{ L('เรื่อง', 'Event') }}</th><th>{{ L('ถึง', 'To') }}</th><th>{{ L('ผล', 'Result') }}</th></tr></thead>
+    <tbody>{% for l in logs %}<tr><td class="nowrap small">{{ l.at | dt }}</td><td>{{ l.channel }}</td><td>{{ l.event }}</td><td class="small">{{ l.target }}</td>
+      <td class="small">{% if l.ok %}<span class="chip closed">OK</span>{% else %}<span class="chip open">{{ L('ไม่สำเร็จ', 'failed') }}</span>{% endif %} {{ l.detail }}</td></tr>
+    {% else %}<tr><td colspan="5" class="mute">{{ L('ยังไม่มีประวัติการส่ง', 'Nothing sent yet') }}</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => { const m = document.getElementById('mailMethod'); const sync = () => document.querySelectorAll('[data-mail]').forEach(el => el.hidden = (el.dataset.mail === 'smtp') !== (m.value === 'smtp')); m.addEventListener('change', sync); sync(); })();
+</script>
+{% endblock %}
