@@ -38,8 +38,10 @@
       {% for v, th, en in DOW %}<label class="check" style="margin-right:8px"><input type="checkbox" name="weekdays" value="{{ v }}" {{ 'checked' if v in cur }}>{{ L(th, en) }}</label>{% endfor %}</div></div>
     <div class="field"><label>{{ L('ส่งทางช่องทาง', 'Send through') }}</label><div class="inline">{% set chs = (s.channels if s else 'email').split(',') %}
       {% for c, lab in CHANNELS %}<label class="check" style="margin-right:8px"><input type="checkbox" name="ch_{{ c }}" {{ 'checked' if c in chs }}>{{ lab }}</label>{% endfor %}</div></div>
+    <div class="field"><label>{{ L('ส่งอีเมลถึงผู้ใช้ในกลุ่ม (ใช้อีเมลในบัญชีผู้ใช้)', 'E-mail every user of these roles') }}</label><div class="inline">{% set rs = (s.to_roles if s else '').split(',') %}
+      {% for r in roles %}<label class="check" style="margin-right:10px"><input type="checkbox" name="to_roles" value="{{ r.code }}" {{ 'checked' if r.code in rs }}>{{ r.name }}</label>{% endfor %}</div></div>
     <div class="frow">
-      <div class="field"><label>Email To</label><textarea name="to_addr" placeholder="assembly@company.com, manager@company.com" style="min-height:60px">{{ s.to_addr if s else '' }}</textarea></div>
+      <div class="field"><label>{{ L('Email To เพิ่มเติม', 'Extra e-mail To') }}</label><textarea name="to_addr" placeholder="assembly@company.com, manager@company.com" style="min-height:60px">{{ s.to_addr if s else '' }}</textarea></div>
       <div class="field"><label>Email CC</label><textarea name="cc_addr" style="min-height:60px">{{ s.cc_addr if s else '' }}</textarea></div>
     </div>
     <label class="check"><input type="checkbox" name="enabled" {{ 'checked' if not s or s.enabled }}>{{ L('เปิดใช้กำหนดการนี้', 'This schedule is on') }}</label>
@@ -57,7 +59,7 @@
       <td class="nowrap">{{ r.at_time }}<br><span class="mute small">{% if r.freq == 'monthly' %}{{ L('ทุกวันที่', 'day') }} {{ r.monthday }}{% else %}{% for v, th, en in DOW if v in r.weekdays.split(',') %}{{ L(th, en) }} {% endfor %}{% endif %}</span></td>
       <td class="small">{% if r.kind == 'missing' %}{{ L('เตือน Line ที่ยังไม่ส่ง กะ', 'Missing-data reminder, shift') }} {{ 'Day' if r.shift != 'N' else 'Night' }}
         {% else %}{{ 'Inspection' if r.include_insp }}{{ ' + ' if r.include_insp and r.include_issue }}{{ 'Quality Issue' if r.include_issue }}<br>{% for k, th, en in PERIODS if k == r.period %}{{ L(th, en) }}{% endfor %}{{ ', Excel' if r.attach_excel }}{% endif %}</td>
-      <td class="small">{{ r.channels.replace(',', ', ') }}<br><span class="mute">{{ r.to_addr }}{% if r.cc_addr %}<br>cc {{ r.cc_addr }}{% endif %}</span></td>
+      <td class="small">{{ r.channels.replace(',', ', ') }}<br><span class="mute">{% if r.to_roles %}{{ L('กลุ่ม', 'roles') }}: {{ r.to_roles.replace(',', ', ') }}<br>{% endif %}{{ r.to_addr }}{% if r.cc_addr %}<br>cc {{ r.cc_addr }}{% endif %}</span></td>
       <td class="small">{{ r.last_result or '-' }}</td>
       <td class="nowrap"><form method="post" action="/admin/schedules/{{ r.id }}/run" style="display:inline" data-confirm="{{ L('ส่งรายงานนี้ทันที?', 'Send this now?') }}"><button class="btn sm">{{ L('ส่งตอนนี้', 'Send now') }}</button></form>
         <a class="btn sm" href="/admin/schedules?edit={{ r.id }}">{{ L('แก้ไข', 'Edit') }}</a>
@@ -69,6 +71,7 @@
   <p style="margin-top:0">{{ L('Host ฟรีส่วนใหญ่จะหยุดโปรแกรมเมื่อไม่มีคนใช้งาน ทำให้รายงานไม่ถูกส่งตามเวลา วิธีแก้คือให้บริการปลุกจากภายนอก (เช่น cron-job.org หรือ UptimeRobot) เรียกที่อยู่นี้ทุก 5 ถึง 10 นาที โปรแกรมจะตื่นและส่งรายการที่ถึงเวลา (ย้อนหลังได้ไม่เกิน 12 ชั่วโมง)',
     'Most free hosts put the app to sleep when nobody uses it, so timed reports are missed. Have an outside pinger (cron-job.org, UptimeRobot) call this address every 5 to 10 minutes: the app wakes up and sends whatever is due (up to 12 hours late).') }}</p>
   <p><code id="cronurl"></code></p>
+  {% if is_hosted %}<p class="small">{% if ping.last %}<span class="c-ok">{{ L('ได้รับสัญญาณปลุกล่าสุด', 'Last wake-up call') }} {{ ping.last | dt }}</span>{% else %}<span class="c-nc">{{ L('ยังไม่ได้รับสัญญาณปลุกตั้งแต่โปรแกรมเริ่มทำงานรอบนี้', 'No wake-up call received since this start') }}</span>{% endif %}</p>{% endif %}
   <p class="hint">{{ L('งานประจำวัน (ลบรูปที่ครบกำหนด เตือนรูปใกล้หมดอายุ สำรองข้อมูลบน PC) ทำงานหลัง 00:30 ของทุกวัน', 'Daily upkeep (removing expired photos, expiry reminders, PC backup) runs after 00:30 each day.') }}
     {% if maint.last_result %} {{ L('ครั้งล่าสุด', 'Last run') }}: {{ maint.last_result }}{% endif %}</p>
 </div></section>

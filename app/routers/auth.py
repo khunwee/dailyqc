@@ -8,7 +8,8 @@ from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from .. import config
-from ..core import (NOTICE_STATE, audit, current_user, flash, hash_password, render, user_perms, verify_password)
+from ..core import (NOTICE_STATE, audit, current_user, flash, hash_password, home_path, notice_visible, render, user_perms,
+                    verify_password)
 from ..db import get_db
 from ..models import Notice, NoticeRead, User
 from ..services import jobs
@@ -24,8 +25,8 @@ def _blocked(key):
 
 @router.get("/login")
 def login_page(request: Request, next: str = "", db: Session = Depends(get_db)):
-    if request.session.get("uid") and db.get(User, request.session["uid"]):
-        return RedirectResponse("/", 303)
+    if request.session.get("uid") and (u := db.get(User, request.session["uid"])):
+        return RedirectResponse(home_path(u), 303)
     return render(request, "login.html", db=db, next=next)
 
 
@@ -51,7 +52,7 @@ def login(request: Request, username: str = Form(""), password: str = Form(""), 
     if user.must_change:
         flash(request, "กรุณาตั้งรหัสผ่านใหม่ก่อนเริ่มใช้งาน", "warn")
         return RedirectResponse("/account", 303)
-    return RedirectResponse(next if next.startswith("/") and not next.startswith("//") else "/", 303)
+    return RedirectResponse(next if next.startswith("/") and not next.startswith("//") else home_path(user), 303)
 
 
 @router.get("/logout")
@@ -86,7 +87,7 @@ def account_save(request: Request, full_name: str = Form(""), email: str = Form(
     else:
         flash(request, "บันทึกข้อมูลบัญชีแล้ว")
     db.commit()
-    return RedirectResponse("/account" if user.must_change else "/", 303)
+    return RedirectResponse("/account" if user.must_change else home_path(user), 303)
 
 
 @router.get("/lang/{code}")
@@ -119,7 +120,7 @@ def notices(request: Request, user: User = Depends(current_user), db: Session = 
     last = nr.last_id if nr else 0
     since = config.now() - timedelta(days=30)
     rows = db.query(Notice).filter(Notice.created_at >= since).order_by(Notice.id.desc()).limit(120).all()
-    rows = [r for r in rows if not r.perm or r.perm in perms][:40]
+    rows = [r for r in rows if notice_visible(r.perm, perms)][:40]
     return {"unread": sum(1 for r in rows if r.id > last),
             "items": [dict(id=r.id, level=r.level, title=r.title, body=r.body, link=r.link,
                            at=r.created_at.strftime("%d/%m %H:%M"), new=r.id > last) for r in rows]}
@@ -149,6 +150,7 @@ def cron_tick(key: str = "", force: int = 0):
     Nothing is read from the database unless something is actually due (force=1 re-reads the schedules)."""
     if config.CRON_KEY and key != config.CRON_KEY:
         return JSONResponse({"error": "bad key"}, status_code=403)
+    jobs.PING["last"], jobs.PING["count"] = config.now(), jobs.PING["count"] + 1
     return {"ran": jobs.tick(force=bool(force)), "time": config.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 

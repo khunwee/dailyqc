@@ -3,6 +3,48 @@
 {% block title %}{{ L('ช่องทางแจ้งเตือน', 'Notifications') }}{% endblock %}
 {% block content %}
 {% macro chans(prefix, sel) %}<div class="inline">{% for c, lab in CHANNELS %}<label class="check" style="margin-right:8px"><input type="checkbox" name="{{ prefix }}_ch_{{ c }}" {{ 'checked' if c in sel }}>{{ lab }}</label>{% endfor %}</div>{% endmacro %}
+{% set mname = {'smtp': 'SMTP', 'brevo': 'Brevo API', 'resend': 'Resend API'}.get(smtp.method or 'smtp') %}
+<section class="panel" id="overview">
+  <header><h2>{{ L('สถานะการส่งอีเมล', 'E-mail status') }}</h2>
+    <span class="chip {{ 'closed' if email_ok else 'open' }}">{{ mname }} {{ L('ตั้งค่าแล้ว', 'configured') if email_ok else L('ยังไม่ได้ตั้งค่า', 'not set up') }}</span></header>
+  <div class="body">
+    {% if is_hosted and (smtp.method or 'smtp') == 'smtp' %}<div class="flash err">{{ L('โปรแกรมรันบน Host และเลือกส่งแบบ SMTP: Render แผนฟรีปิด port 25 / 465 / 587 อีเมลจะส่งไม่ออก ให้เปลี่ยนวิธีส่งเป็น Brevo API หรือ Resend API ในกล่อง Email ด้านล่าง',
+      'Running on a host with SMTP selected: Render\'s free plan blocks ports 25 / 465 / 587, so no e-mail will leave. Switch to Brevo API or Resend API in the Email box below.') }}</div>{% endif %}
+    {% if ov.last_fail %}<div class="flash err"><b>{{ L('ส่งอีเมลไม่สำเร็จล่าสุด', 'Last failed e-mail') }} {{ ov.last_fail.at | dt }} ({{ ov.last_fail.event }})</b><br>{{ ov.last_fail.detail }}</div>{% endif %}
+    {% if ov.last_ok %}<p class="small" style="margin-top:0">{{ L('ส่งอีเมลสำเร็จล่าสุด', 'Last e-mail sent') }}: {{ ov.last_ok.at | dt }}, {{ ov.last_ok.event }} {{ L('ถึง', 'to') }} {{ ov.last_ok.target }}</p>{% endif %}
+
+    <div class="inline" style="margin-bottom:12px">
+      <form method="post" action="/admin/notify/check"><button class="btn pri">{{ L('ตรวจการเชื่อมต่อ (ไม่ส่งอีเมล)', 'Check the connection (sends nothing)') }}</button></form>
+      <form method="post" action="/admin/notify/test/email" class="inline"><input type="text" name="to" placeholder="{{ L('อีเมลผู้รับทดสอบ', 'test recipient') }}" value="{{ user.email }}" style="width:240px"><button class="btn">{{ L('ส่งอีเมลทดสอบ', 'Send a test e-mail') }}</button></form>
+    </div>
+    {% if check %}
+    <table class="t" style="margin-bottom:12px"><tbody>
+      {% for st, ok, detail in check %}<tr><td style="width:150px"><b>{{ {'DNS': L('หา Server', 'Find server'), 'connect': L('เชื่อมต่อ', 'Connect'), 'tls': L('เข้ารหัส', 'Encrypt'), 'login': 'Login', 'sender': L('อีเมลผู้ส่ง', 'Sender'), 'config': L('การตั้งค่า', 'Settings'), 'send': L('ส่ง', 'Send')}.get(st, st) }}</b></td>
+        <td style="width:90px">{% if ok %}<span class="chip closed">{{ L('ผ่าน', 'OK') }}</span>{% else %}<span class="chip open">{{ L('ไม่ผ่าน', 'Failed') }}</span>{% endif %}</td><td class="small">{{ detail }}</td></tr>{% endfor %}
+    </tbody></table>
+    {% if check | selectattr(1, 'false') | list %}{% else %}<p class="small c-ok" style="margin-top:0">{{ L('เชื่อมต่อได้ ขั้นต่อไปคือกด ส่งอีเมลทดสอบ แล้วตรวจกล่องจดหมาย (รวมถึง Junk / Spam)', 'Connected. Next, send a test e-mail and check the inbox, including Junk / Spam.') }}</p>{% endif %}
+    {% endif %}
+
+    <h3 style="margin:14px 0 6px">{{ L('ใครจะได้รับอีเมลอะไร', 'Who receives which e-mail') }}</h3>
+    {% if ov.no_mail %}<p class="small c-nc" style="margin-top:0">{{ L('มีผู้ใช้', 'There are') }} {{ ov.no_mail }} {{ L('คนที่ยังไม่มีอีเมลในบัญชี จะไม่ได้รับอีเมลที่ส่งตามกลุ่ม', 'active users without an e-mail address; they get no role e-mails.') }} <a href="/admin/users">{{ L('เพิ่มอีเมลที่เมนู ผู้ใช้งาน', 'Add it under Users') }}</a></p>{% endif %}
+    <div class="tblwrap"><table class="t">
+      <thead><tr><th>{{ L('เรื่อง', 'Event') }}</th><th>{{ L('ส่งอีเมล', 'E-mail') }}</th><th>{{ L('ผู้รับ', 'Recipients') }}</th><th></th></tr></thead>
+      <tbody>
+      {% for r in ov.events %}<tr><td><a href="#ev-{{ r.key }}">{{ L(r.title[0], r.title[1]) }}</a></td>
+        <td>{% if r.on %}<span class="chip closed">{{ L('ส่ง', 'Yes') }}</span>{% else %}<span class="chip open">{{ L('ไม่ส่ง', 'No') }}</span>{% endif %}</td>
+        <td class="small">{{ r.to | join(', ') }}{% if r.cc %}<br>cc {{ r.cc | join(', ') }}{% endif %}{% if r.reporter %}{{ '<br>' | safe if r.to }}{{ L('+ QC ผู้แจ้งเคส', '+ the reporting QC') }}{% endif %}
+          {% for w in r.warn %}<div class="c-ng">{{ w }}</div>{% endfor %}</td>
+        <td class="nowrap">{% if r.key in ('issue_new', 'issue_answered', 'issue_status') and email_ok %}<form method="post" action="/admin/notify/sample/{{ r.key }}" class="inline"><input type="hidden" name="to" value="{{ user.email }}"><button class="btn sm" {{ 'disabled title=' ~ L('ใส่อีเมลของคุณที่ บัญชีของฉัน ก่อน', 'Add your own e-mail under My account first') if not user.email }}>{{ L('ส่งตัวอย่างถึงฉัน', 'Send me a sample') }}</button></form>{% endif %}</td></tr>{% endfor %}
+      {% for r in ov.schedules %}<tr><td><a href="/admin/schedules?edit={{ r.id }}">{{ L('ตั้งเวลา', 'Schedule') }}: {{ r.name }}</a> <span class="mute small">{{ r.when }}</span></td>
+        <td>{% if r.on %}<span class="chip closed">{{ L('ส่ง', 'Yes') }}</span>{% else %}<span class="chip open">{{ L('ไม่ส่ง', 'No') }}</span>{% endif %}</td>
+        <td class="small">{{ r.to | join(', ') }}{% if r.cc %}<br>cc {{ r.cc | join(', ') }}{% endif %}{% for w in r.warn %}<div class="c-ng">{{ w }}</div>{% endfor %}{% if r.last %}<div class="mute">{{ L('ครั้งล่าสุด', 'Last run') }}: {{ r.last }}</div>{% endif %}</td><td></td></tr>{% endfor %}
+      </tbody></table></div>
+    {% if is_hosted %}<p class="small" style="margin-bottom:0">{% if ping.last %}{{ L('ได้รับสัญญาณปลุกจาก cron-job.org ล่าสุด', 'Last wake-up call from cron-job.org') }} {{ ping.last | dt }} ({{ ping.count }} {{ L('ครั้ง ตั้งแต่โปรแกรมเริ่มทำงาน', 'since start') }})
+      {% else %}<span class="c-nc">{{ L('ยังไม่ได้รับสัญญาณปลุกจาก cron-job.org ตั้งแต่โปรแกรมเริ่มทำงานรอบนี้ ถ้ายังไม่ได้ตั้งค่า รายงานตามเวลาจะไม่ถูกส่งตอนโปรแกรมหลับ (ดูเมนู ส่งรายงานอัตโนมัติ)',
+        'No wake-up call from cron-job.org since this start. Without it, timed reports are not sent while the app sleeps (see Scheduled reports).') }}</span>{% endif %}</p>{% endif %}
+  </div>
+</section>
+
 <form method="post" id="nf">
 <div class="grid g2" style="align-items:start">
 <div>
@@ -53,35 +95,38 @@
 </div>
 
 <div>
-<section class="panel"><header><h2>{{ L('เมื่อมี Quality Issue ใหม่', 'When a quality issue is reported') }}</h2></header><div class="body">
-  <label class="check"><input type="checkbox" name="issue_new_enabled" {{ 'checked' if ev.issue_new.enabled }}>{{ L('แจ้งเตือนทันทีพร้อมรูปแรกของเคส', 'Notify at once, with the first photo') }}</label>
-  {{ chans('issue_new', ev.issue_new.channels) }}
-  <div class="frow"><div class="field"><label>Email To</label><input type="text" name="issue_new_to" value="{{ ev.issue_new.to }}"></div><div class="field"><label>Email CC</label><input type="text" name="issue_new_cc" value="{{ ev.issue_new.cc }}"></div></div>
+<h2 style="margin:0 0 10px">{{ L('แจ้งเตือนเมื่อเกิดอะไรขึ้นในโปรแกรม', 'What triggers a notification') }}</h2>
+{% for key, th, en, dth, den, case_ev in EVENTS %}{% set e = ev[key] %}
+<section class="panel" id="ev-{{ key }}"><header><h2>{{ L(th, en) }}</h2>
+  <label class="check" style="margin:0"><input type="checkbox" name="{{ key }}_enabled" {{ 'checked' if e.enabled }}>{{ L('เปิดใช้', 'On') }}</label></header><div class="body">
+  <p class="hint" style="margin-top:0">{{ L(dth, den) }}</p>
+  {% if key == 'ng_alert' %}
+  <div class="frow"><div class="field"><label>{{ L('เกณฑ์ (NG + NC) / QC Check เป็น %', 'Limit: (NG + NC) / QC Check, %') }}</label><input type="number" step="0.1" min="0" name="ng_alert_threshold" value="{{ e.threshold_pct }}"></div>
+    <div class="field"><label>{{ L('นับเฉพาะเมื่อ QC Check ตั้งแต่ (ชิ้น)', 'Only when QC Check is at least (pcs)') }}</label><input type="number" min="0" name="ng_alert_min" value="{{ e.min_check }}"></div></div>
+  {% elif key == 'photo_expiry' %}
+  <div class="field" style="max-width:240px"><label>{{ L('เตือนล่วงหน้ากี่วัน', 'Days in advance') }}</label><input type="number" min="1" max="30" name="photo_expiry_days" value="{{ e.days_before }}"></div>
+  <label class="check"><input type="checkbox" name="photo_expiry_mail_zip" {{ 'checked' if e.mail_zip }}>{{ L('แนบไฟล์ ZIP ของรูปที่ใกล้ครบกำหนดไปกับอีเมลด้วย (ถ้าไม่เกิน 18 MB)', 'Attach a ZIP of the expiring photos to the e-mail (when under 18 MB)') }}</label>
+  {% elif key == 'issue_status' %}
+  <label class="check"><input type="checkbox" name="issue_status_closed_only" {{ 'checked' if e.closed_only }}>{{ L('แจ้งเฉพาะตอนปิดเคส', 'Only when a case is closed') }}</label>
+  {% endif %}
+  <label>{{ L('ช่องทาง', 'Channels') }}</label>{{ chans(key, e.channels or []) }}
+  <label style="margin-top:8px">{{ L('ส่งอีเมลถึงผู้ใช้ในกลุ่ม (ใช้อีเมลในบัญชีผู้ใช้)', 'E-mail every user of these roles (their account e-mail)') }}</label>
+  <div class="inline">{% for r in roles %}<label class="check" style="margin-right:10px"><input type="checkbox" name="{{ key }}_roles" value="{{ r.code }}" {{ 'checked' if r.code in (e.roles or []) }}>{{ r.name }} <span class="mute small">&nbsp;({{ role_mail.get(r.code, 0) }} {{ L('คนมีอีเมล', 'with e-mail') }})</span></label>{% endfor %}</div>
+  {% if case_ev %}<label class="check"><input type="checkbox" name="{{ key }}_reporter" {{ 'checked' if e.reporter }}>{{ L('ส่งถึง QC ผู้แจ้งเคสนั้นด้วย', 'Also the QC who reported the case') }}</label>{% endif %}
+  <div class="frow"><div class="field"><label>{{ L('Email To เพิ่มเติม', 'Extra e-mail To') }}</label><input type="text" name="{{ key }}_to" value="{{ e.to or '' }}" placeholder="a@company.com, b@company.com"></div>
+    <div class="field"><label>Email CC</label><input type="text" name="{{ key }}_cc" value="{{ e.cc or '' }}"></div></div>
 </div></section>
-<section class="panel"><header><h2>{{ L('เมื่อ NG + NC สูงเกินเกณฑ์', 'When NG + NC is above the limit') }}</h2></header><div class="body">
-  <label class="check"><input type="checkbox" name="ng_alert_enabled" {{ 'checked' if ev.ng_alert.enabled }}>{{ L('ตรวจทุกครั้งที่ QC บันทึกผลตรวจ', 'Checked every time QC saves a sheet') }}</label>
-  <div class="frow"><div class="field"><label>{{ L('เกณฑ์ (NG + NC) / QC Check เป็น %', 'Limit: (NG + NC) / QC Check, %') }}</label><input type="number" step="0.1" min="0" name="ng_alert_threshold" value="{{ ev.ng_alert.threshold_pct }}"></div>
-    <div class="field"><label>{{ L('นับเฉพาะเมื่อ QC Check ตั้งแต่ (ชิ้น)', 'Only when QC Check is at least (pcs)') }}</label><input type="number" min="0" name="ng_alert_min" value="{{ ev.ng_alert.min_check }}"></div></div>
-  {{ chans('ng_alert', ev.ng_alert.channels) }}
-  <div class="frow"><div class="field"><label>Email To</label><input type="text" name="ng_alert_to" value="{{ ev.ng_alert.to }}"></div><div class="field"><label>Email CC</label><input type="text" name="ng_alert_cc" value="{{ ev.ng_alert.cc }}"></div></div>
-</div></section>
-<section class="panel"><header><h2>{{ L('ก่อนรูปจะถูกลบตามกำหนด', 'Before photos are removed') }}</h2></header><div class="body">
-  <label class="check"><input type="checkbox" name="photo_expiry_enabled" {{ 'checked' if ev.photo_expiry.enabled }}>{{ L('เตือน Admin ให้สำรองรูปไว้ก่อน', 'Remind admins to back the photos up first') }}</label>
-  <div class="field" style="max-width:240px"><label>{{ L('เตือนล่วงหน้ากี่วัน', 'Days in advance') }}</label><input type="number" min="1" max="30" name="photo_expiry_days" value="{{ ev.photo_expiry.days_before }}"></div>
-  {{ chans('photo_expiry', ev.photo_expiry.channels) }}
-  <div class="frow"><div class="field"><label>Email To</label><input type="text" name="photo_expiry_to" value="{{ ev.photo_expiry.to }}"></div><div class="field"><label>Email CC</label><input type="text" name="photo_expiry_cc" value="{{ ev.photo_expiry.cc }}"></div></div>
-  <label class="check"><input type="checkbox" name="photo_expiry_mail_zip" {{ 'checked' if ev.photo_expiry.mail_zip }}>{{ L('แนบไฟล์ ZIP ของรูปที่ใกล้ครบกำหนดไปกับอีเมลด้วย (ถ้าไม่เกิน 18 MB)', 'Attach a ZIP of the expiring photos to the e-mail (when under 18 MB)') }}</label>
-</div></section>
-<p class="hint">{{ L('หลายอีเมลคั่นด้วยจุลภาค การส่งรายงานตามเวลา ตั้งที่เมนู ส่งรายงานอัตโนมัติ', 'Separate several addresses with commas. Timed reports are set under Scheduled reports.') }}</p>
+{% endfor %}
+<p class="hint">{{ L('หลายอีเมลคั่นด้วยจุลภาค ช่องว่าง หรือขึ้นบรรทัดใหม่ ผู้ใช้ต้องมีอีเมลในเมนู ผู้ใช้งาน จึงจะได้รับอีเมลตามกลุ่ม การส่งรายงานตามเวลา ตั้งที่เมนู ส่งรายงานอัตโนมัติ',
+  'Separate addresses with commas, spaces or new lines. Users only get role e-mails when their account has an e-mail address. Timed reports are set under Scheduled reports.') }}</p>
 <button class="btn pri" style="min-height:46px;padding:8px 26px">{{ L('บันทึกการแจ้งเตือน', 'Save notifications') }}</button>
 </div>
 </div>
 </form>
 
 <section class="panel" style="margin-top:16px">
-  <header><h2>{{ L('ทดสอบส่ง (บันทึกการตั้งค่าก่อน)', 'Send a test (save first)') }}</h2></header>
+  <header><h2>{{ L('ทดสอบช่องทางอื่น และประวัติการส่ง', 'Test other channels, and send history') }}</h2><span class="mute small">{{ L('บันทึกการตั้งค่าก่อนทดสอบ', 'Save before testing') }}</span></header>
   <div class="body inline">
-    <form method="post" action="/admin/notify/test/email" class="inline"><input type="text" name="to" placeholder="{{ L('อีเมลผู้รับทดสอบ', 'test recipient') }}" value="{{ user.email }}" style="width:230px"><button class="btn">Email</button></form>
     {% for c, lab in CHANNELS if c != 'email' %}<form method="post" action="/admin/notify/test/{{ c }}"><button class="btn">{{ lab }}</button></form>{% endfor %}
   </div>
   <div class="body flush tblwrap" style="border-top:1px solid var(--rule-2)"><table class="t">

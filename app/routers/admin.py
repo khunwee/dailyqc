@@ -12,7 +12,7 @@ from starlette.background import BackgroundTask
 
 from .. import config, seed
 from ..core import sync_notice_state  # noqa: I001
-from ..core import (ALL_PERMS, CHANNELS, DEFAULT_SETTINGS, PERIODS, PERMS, audit, email_ready, flash, get_setting, hash_password, pint,
+from ..core import (ALL_PERMS, CHANNELS, DEFAULT_SETTINGS, EVENTS, PERIODS, PERMS, audit, email_ready, flash, get_setting, hash_password, pint,
                     render, require, set_setting)
 from ..db import get_db
 from ..models import (AuditLog, Customer, DefectType, InspRecord, Issue, IssuePhoto, Line, Part, Role, Schedule, SendLog,
@@ -377,12 +377,69 @@ async def settings_save(request: Request, user: User = Depends(ADMIN), db: Sessi
 
 
 # ================================================================ notifications
+def email_overview(db):
+    """Who gets an e-mail for each event and schedule, and what will stop it from arriving."""
+    from datetime import timedelta
+    ev = get_setting(db, "events")
+    rows = []
+    for key, th, en, _, _, case_ev in EVENTS:
+        cfg = ev.get(key, {})
+        to, cc, bad = notify.recipients(db, cfg)
+        on = bool(cfg.get("enabled")) and "email" in (cfg.get("channels") or [])
+        warn = []
+        if not cfg.get("enabled"):
+            warn.append("ปิดการแจ้งเตือนเรื่องนี้อยู่")
+        elif "email" not in (cfg.get("channels") or []):
+            warn.append("ยังไม่ได้ติ๊กช่องทาง Email")
+        elif not to and not (case_ev and cfg.get("reporter")):
+            warn.append("ไม่มีผู้รับ: ใส่อีเมลในช่อง To หรือเลือกกลุ่มผู้ใช้ที่มีอีเมล")
+        if bad:
+            warn.append("ที่อยู่อีเมลไม่ถูกต้อง: " + ", ".join(bad))
+        rows.append(dict(key=key, title=(th, en), on=on and not bad and (bool(to) or (case_ev and cfg.get("reporter"))),
+                         to=to, cc=cc, warn=warn, reporter=bool(case_ev and cfg.get("reporter"))))
+    sched = []
+    for sch in db.query(Schedule).order_by(Schedule.id).all():
+        to, cc, bad = notify.recipients(db, {"to": sch.to_addr, "cc": sch.cc_addr, "roles": sch.to_roles or ""})
+        mail = "email" in (sch.channels or "").split(",")
+        warn = []
+        if not sch.enabled:
+            warn.append("ปิดอยู่")
+        elif not mail:
+            warn.append("ไม่ได้เลือกส่งทาง Email")
+        elif not to:
+            warn.append("ไม่มีผู้รับ")
+        if bad:
+            warn.append("ที่อยู่อีเมลไม่ถูกต้อง: " + ", ".join(bad))
+        sched.append(dict(id=sch.id, name=sch.name, on=sch.enabled and mail and bool(to) and not bad, to=to, cc=cc,
+                          warn=warn, when=f"{sch.at_time}", last=sch.last_result or ""))
+    since = config.now() - timedelta(days=1)
+    last_fail = db.query(SendLog).filter(SendLog.channel == "email", SendLog.ok == False, SendLog.at >= since) \
+        .order_by(SendLog.id.desc()).first()  # noqa: E712
+    last_ok = db.query(SendLog).filter(SendLog.channel == "email", SendLog.ok == True).order_by(SendLog.id.desc()).first()  # noqa: E712
+    no_mail = db.query(User).filter(User.active == True, (User.email == None) | (User.email == "")).count()  # noqa: E711,E712
+    return dict(events=rows, schedules=sched, last_fail=last_fail, last_ok=last_ok, no_mail=no_mail)
+
+
+def _notify_ctx(db):
+    return dict(smtp=get_setting(db, "smtp"), line=get_setting(db, "line"), tg=get_setting(db, "telegram"),
+                dc=get_setting(db, "discord"), wh=get_setting(db, "webhook"), ev=get_setting(db, "events"),
+                email_ok=email_ready(db), EVENTS=EVENTS, roles=db.query(Role).order_by(Role.id).all(),
+                role_mail=dict(db.query(Role.code, func.count(User.id)).join(User, User.role_id == Role.id)
+                               .filter(User.active == True, User.email != None, User.email != "")  # noqa: E711,E712
+                               .group_by(Role.code).all()),
+                ov=email_overview(db), ping=jobs.PING, cron_key=config.CRON_KEY,
+                logs=db.query(SendLog).order_by(SendLog.id.desc()).limit(20).all())
+
+
 @router.get("/notify")
 def notify_page(request: Request, user: User = Depends(ADMIN), db: Session = Depends(get_db)):
-    return render(request, "admin/notify.html", db=db, smtp=get_setting(db, "smtp"), line=get_setting(db, "line"),
-                  tg=get_setting(db, "telegram"), dc=get_setting(db, "discord"), wh=get_setting(db, "webhook"),
-                  ev=get_setting(db, "events"), email_ok=email_ready(db),
-                  logs=db.query(SendLog).order_by(SendLog.id.desc()).limit(15).all())
+    return render(request, "admin/notify.html", db=db, check=None, **_notify_ctx(db))
+
+
+@router.post("/notify/check")
+def notify_check(request: Request, user: User = Depends(ADMIN), db: Session = Depends(get_db)):
+    """Connect and log in to the mail server step by step, without sending anything."""
+    return render(request, "admin/notify.html", db=db, check=notify.check_email(db), **_notify_ctx(db))
 
 
 @router.post("/notify")
@@ -407,10 +464,19 @@ async def notify_save(request: Request, user: User = Depends(ADMIN), db: Session
             cur[fld] = v
         set_setting(db, key, cur)
     ev = get_setting(db, "events")
-    for name in ("issue_new", "ng_alert", "photo_expiry"):
-        ev[name]["enabled"] = bool(f.get(f"{name}_enabled"))
-        ev[name]["channels"] = [c for c, _ in CHANNELS if f.get(f"{name}_ch_{c}")]
-        ev[name]["to"], ev[name]["cc"] = g(f"{name}_to"), g(f"{name}_cc")
+    warn = []
+    for name, th, _, _, _, case_ev in EVENTS:
+        e = ev.setdefault(name, {})
+        e["enabled"] = bool(f.get(f"{name}_enabled"))
+        e["channels"] = [c for c, _ in CHANNELS if f.get(f"{name}_ch_{c}")]
+        e["to"], e["cc"] = g(f"{name}_to"), g(f"{name}_cc")
+        e["roles"] = [r for r in f.getlist(f"{name}_roles") if r]
+        if case_ev:
+            e["reporter"] = bool(f.get(f"{name}_reporter"))
+        _, _, bad = notify.clean_addrs(e["to"], e["cc"])
+        if bad:
+            warn.append(f"{th}: {', '.join(bad)}")
+    ev["issue_status"]["closed_only"] = bool(f.get("issue_status_closed_only"))
     try:
         ev["ng_alert"]["threshold_pct"] = float(g("ng_alert_threshold") or 5)
     except ValueError:
@@ -421,7 +487,28 @@ async def notify_save(request: Request, user: User = Depends(ADMIN), db: Session
     set_setting(db, "events", ev)
     audit(db, user, "notify_save")
     flash(request, "บันทึกการแจ้งเตือนแล้ว")
-    return RedirectResponse("/admin/notify", 303)
+    if warn:
+        flash(request, "ที่อยู่อีเมลเหล่านี้ไม่ถูกต้อง จะถูกข้ามตอนส่ง: " + "; ".join(warn), "warn")
+    return RedirectResponse("/admin/notify#overview", 303)
+
+
+@router.post("/notify/sample/{event}")
+def notify_sample(event: str, request: Request, to: str = Form(""), user: User = Depends(ADMIN), db: Session = Depends(get_db)):
+    """Send what this event's e-mail looks like, built from the latest case, to one test address only."""
+    it = db.query(Issue).order_by(Issue.id.desc()).first()
+    if not it:
+        flash(request, "ยังไม่มีเคสให้ใช้เป็นตัวอย่าง", "warn")
+        return RedirectResponse("/admin/notify", 303)
+    who = user.full_name or user.username
+    subject, body = {"issue_new": lambda: jobs.msg_issue_new(it),
+                     "issue_answered": lambda: jobs.msg_issue_answered(it, who),
+                     "issue_status": lambda: jobs.msg_issue_status(it, "in_progress", "closed", who)}.get(event, lambda: (None, None))()
+    if not subject:
+        return RedirectResponse("/admin/notify", 303)
+    res = notify.dispatch(db, "sample", ["email"], "[ตัวอย่าง] " + subject, body, to=to or user.email, link=f"/issues/{it.id}")
+    ok, detail = res.get("email", (False, ""))
+    flash(request, f"ส่งตัวอย่างอีเมลถึง {to or user.email} แล้ว" if ok else f"ส่งไม่สำเร็จ: {detail}", "ok" if ok else "err")
+    return RedirectResponse("/admin/notify#overview", 303)
 
 
 @router.post("/notify/test/{channel}")
@@ -431,7 +518,7 @@ def notify_test(channel: str, request: Request, to: str = Form(""), user: User =
                           link="/", perm="admin")
     ok, detail = res.get(channel, (False, "ไม่รู้จักช่องทางนี้"))
     flash(request, f"ส่งทดสอบทาง {channel} สำเร็จ" if ok else f"ส่งทาง {channel} ไม่สำเร็จ: {detail}", "ok" if ok else "err")
-    return RedirectResponse("/admin/notify", 303)
+    return RedirectResponse("/admin/notify#overview", 303)
 
 
 # ================================================================ schedules
@@ -440,7 +527,7 @@ def schedules(request: Request, edit: int = 0, user: User = Depends(ADMIN), db: 
     return render(request, "admin/schedules.html", db=db, rows=db.query(Schedule).order_by(Schedule.id).all(),
                   ed=db.get(Schedule, edit) if edit else None, new=request.query_params.get("new"),
                   smtp_ready=email_ready(db), maint=get_setting(db, "maint"),
-                  cron_key=config.CRON_KEY)
+                  cron_key=config.CRON_KEY, roles=db.query(Role).order_by(Role.id).all(), ping=jobs.PING)
 
 
 @router.post("/schedules/save")
@@ -461,6 +548,10 @@ async def schedules_save(request: Request, user: User = Depends(ADMIN), db: Sess
     s.at_time = t if len(t) == 5 and t[2] == ":" else "08:00"
     s.shift = f.get("shift") if f.get("shift") in ("D", "N") else "D"
     s.to_addr, s.cc_addr = (f.get("to_addr") or "").strip(), (f.get("cc_addr") or "").strip()
+    s.to_roles = ",".join(r for r in f.getlist("to_roles") if r)
+    _, _, bad = notify.clean_addrs(s.to_addr, s.cc_addr)
+    if bad:
+        flash(request, "ที่อยู่อีเมลเหล่านี้ไม่ถูกต้อง จะถูกข้ามตอนส่ง: " + ", ".join(bad), "warn")
     s.channels = ",".join(c for c, _ in CHANNELS if f.get(f"ch_{c}"))
     s.attach_excel, s.with_photos, s.enabled = bool(f.get("attach_excel")), bool(f.get("with_photos")), bool(f.get("enabled"))
     s.last_slot = config.now().strftime("%Y-%m-%d %H:%M")      # never fire for a time that has already passed today

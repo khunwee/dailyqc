@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.3.0"
 
 
 def _load_dotenv():

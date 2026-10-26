@@ -25,7 +25,9 @@ PERMS = [
     ("insp.export", "Export QC Inspection เป็น Excel", "Export inspection data"),
     ("issue.view", "ดู Quality Issue", "View quality issues"),
     ("issue.create", "แจ้งปัญหา Quality Issue", "Report a quality issue"),
-    ("issue.analyze", "ลงสาเหตุ/การแก้ไข และปิดเคส", "Fill in root cause, correction, close cases"),
+    ("issue.answer", "ตอบปัญหา: Root Cause, Correction, Plan / Actual date, ผู้รับผิดชอบ, Prevention",
+     "Answer cases: root cause, correction, plan / actual date, responsible, prevention"),
+    ("issue.status", "เปลี่ยนสถานะเคส (เปิดอยู่ / กำลังแก้ไข / ปิดแล้ว)", "Change case status (open / in progress / closed)"),
     ("issue.edit_all", "แก้ไข/ลบเคสของทุกคน", "Edit or delete any case"),
     ("issue.export", "Export Quality Issue เป็น Excel", "Export quality issues"),
     ("master.manage", "จัดการ Part, ลูกค้า, Line, อาการเสีย", "Manage parts, customers, lines, defects"),
@@ -36,9 +38,8 @@ DEFAULT_ROLES = [
     ("admin", "Admin", ALL_PERMS, True),
     ("manager", "QC Supervisor / Engineer", [p for p in ALL_PERMS if p != "admin"], False),
     ("qc", "QC ประจำ Line", ["overview.view", "insp.view", "insp.entry", "insp.export",
-                             "issue.view", "issue.create", "issue.export"], False),
-    ("assembly", "Assembly / Production", ["overview.view", "insp.view", "insp.export",
-                                            "issue.view", "issue.analyze", "issue.export"], False),
+                             "issue.view", "issue.create", "issue.status", "issue.export"], False),
+    ("assy", "Assy (ตอบปัญหา Quality Issue)", ["issue.answer"], False),
     ("viewer", "Viewer (ดูอย่างเดียว)", ["overview.view", "insp.view", "issue.view"], False),
 ]
 
@@ -59,13 +60,33 @@ DEFAULT_SETTINGS = {
     "telegram": {"token": "", "chat_id": ""},
     "discord": {"url": ""},
     "webhook": {"url": ""},
+    # roles: send the e-mail to every active user of these roles who has an e-mail address
+    # reporter: also to the QC who reported the case
     "events": {
-        "issue_new": {"enabled": True, "channels": ["inapp"], "to": "", "cc": ""},
-        "ng_alert": {"enabled": True, "threshold_pct": 5.0, "min_check": 20, "channels": ["inapp"], "to": "", "cc": ""},
+        "issue_new": {"enabled": True, "channels": ["inapp"], "to": "", "cc": "", "roles": ["assy", "manager"]},
+        "issue_answered": {"enabled": True, "channels": ["inapp"], "to": "", "cc": "", "roles": ["manager"],
+                           "reporter": True},
+        "issue_status": {"enabled": True, "channels": ["inapp"], "to": "", "cc": "", "roles": ["assy"],
+                         "reporter": False, "closed_only": False},
+        "ng_alert": {"enabled": True, "threshold_pct": 5.0, "min_check": 20, "channels": ["inapp"], "to": "", "cc": "",
+                     "roles": ["manager"]},
         "photo_expiry": {"enabled": True, "days_before": 7, "channels": ["inapp"], "to": "", "cc": "",
-                         "mail_zip": False},
+                         "mail_zip": False, "roles": ["admin"]},
     },
 }
+# (key, Thai title, English title, Thai explanation, English explanation, case-related)
+EVENTS = [
+    ("issue_new", "มี Quality Issue ใหม่", "A quality issue is reported",
+     "แจ้งทันทีที่ QC บันทึกเคส พร้อมรูปแรกของเคส ให้ Assy เข้ามาตอบ", "Sent as soon as QC saves a case, with its first photo, so Assy can answer.", False),
+    ("issue_answered", "Assy ตอบปัญหาแล้ว", "Assy answered a case",
+     "แจ้งเมื่อ Assy บันทึกหรือแก้ไข Root Cause / Correction / Prevention", "Sent when Assy saves or changes the root cause, correction or prevention.", True),
+    ("issue_status", "QC เปลี่ยนสถานะเคส", "QC changed a case status",
+     "แจ้งเมื่อเคสเปลี่ยนเป็น กำลังแก้ไข หรือ ปิดแล้ว", "Sent when a case moves to in progress or closed.", True),
+    ("ng_alert", "NG + NC สูงเกินเกณฑ์", "NG + NC above the limit",
+     "ตรวจทุกครั้งที่ QC บันทึกผลตรวจประจำกะ", "Checked every time QC saves a shift sheet.", False),
+    ("photo_expiry", "รูปใกล้ถูกลบตามกำหนด", "Photos about to be removed",
+     "เตือนล่วงหน้าให้ดาวน์โหลดรูปเก็บไว้ก่อน", "A reminder to download the photos first.", False),
+]
 CHANNELS = [("inapp", "ในโปรแกรม"), ("email", "Email"), ("line", "LINE"), ("telegram", "Telegram"),
             ("discord", "Discord"), ("webhook", "Webhook / Teams")]
 
@@ -313,12 +334,29 @@ templates.env.filters.update(n=fnum, d=fdate, dt=fdt)
 templates.env.globals["pct"] = fpct
 
 
+def notice_visible(perm: str, perms: set) -> bool:
+    """A notice's perm may name alternatives: "issue.view|issue.answer"."""
+    return not perm or any(p in perms for p in perm.split("|"))
+
+
 def unread_count(db, user) -> int:
     perms = user_perms(user)
     nr = db.get(NoticeRead, user.id)
     last = nr.last_id if nr else 0
     rows = db.query(Notice.id, Notice.perm).filter(Notice.id > last).order_by(Notice.id.desc()).limit(200).all()
-    return sum(1 for r in rows if not r.perm or r.perm in perms)
+    return sum(1 for r in rows if notice_visible(r.perm, perms))
+
+
+def home_path(user) -> str:
+    """First page this user may open. An Assy account only answers quality issues."""
+    have = user_perms(user)
+    if have & {"overview.view", "insp.view", "issue.view"}:
+        return "/"
+    if "insp.entry" in have or "insp.edit_all" in have:
+        return "/inspection/entry"
+    if "issue.answer" in have or "issue.create" in have:
+        return "/issues"
+    return "/account"
 
 
 def render(request: Request, name: str, **ctx):

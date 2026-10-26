@@ -14,10 +14,11 @@ from sqlalchemy.orm import undefer
 from .. import config
 from ..core import get_setting, period_range, set_setting
 from ..db import SessionLocal
-from ..models import InspRecord, Issue, IssuePhoto, Schedule
+from ..models import InspRecord, Issue, IssuePhoto, Schedule, User
 from . import backup, excel, notify, reports
 
 _lock = threading.Lock()
+PING = {"last": None, "count": 0}       # calls to /cron/tick since this process started
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
@@ -115,14 +116,16 @@ def run_schedule(db, sch: Schedule, manual=False):
             return "ครบทุก Line ไม่ต้องเตือน"
         subject = f"ยังไม่ได้รับข้อมูล QC Inspection กะ {'Day' if sh == 'D' else 'Night'} วันที่ {d:%d/%m/%Y}"
         body = ("Line ที่ยังไม่ส่ง: " + ", ".join(miss)) if miss else "ทุก Line ส่งข้อมูลครบแล้ว"
-        res = notify.dispatch(db, "missing_entry", chans, subject, body, to=sch.to_addr, cc=sch.cc_addr,
+        to, cc, _ = notify.recipients(db, {"to": sch.to_addr, "cc": sch.cc_addr, "roles": sch.to_roles or ""})
+        res = notify.dispatch(db, "missing_entry", chans, subject, body, to=to, cc=cc,
                               link="/inspection/entry", perm="insp.entry", level="warn")
     else:
         d1, d2 = period_range(sch.period)
         subject, text, html, att = build_report(db, d1, d2, sch.include_insp, sch.include_issue,
                                                 sch.attach_excel, sch.with_photos)
+        to, cc, _ = notify.recipients(db, {"to": sch.to_addr, "cc": sch.cc_addr, "roles": sch.to_roles or ""})
         res = notify.dispatch(db, "scheduled_report", chans, f"{sch.name} : {excel.period_label(d1, d2)}", text, html,
-                              to=sch.to_addr, cc=sch.cc_addr, attachments=att, link="/", perm="overview.view")
+                              to=to, cc=cc, attachments=att, link="/", perm="overview.view")
     return ", ".join(f"{k}:{'OK' if v[0] else 'FAIL ' + str(v[1])[:60]}" for k, v in res.items()) or "ไม่ได้เลือกช่องทาง"
 
 
@@ -134,15 +137,78 @@ def issue_created(db, issue_id):
     it = db.get(Issue, issue_id)
     if not it:
         return
-    src = "ลูกค้า" if it.source == "external" else "ภายใน"
-    subject = f"Quality Issue ใหม่ {it.case_no} ({src}) {it.customer.code if it.customer else ''}"
+    subject, body = msg_issue_new(it)
+    ph = db.query(IssuePhoto).options(undefer(IssuePhoto.data)).filter(IssuePhoto.issue_id == it.id).first()
+    to, cc, _ = notify.recipients(db, ev)
+    notify.dispatch(db, "issue_new", ev.get("channels"), subject, body, to=to, cc=cc,
+                    photo=bytes(ph.data) if ph and ph.data else None, link=f"/issues/{it.id}", perm="issue.view|issue.answer",
+                    level="alert" if it.source == "external" else "warn")
+
+
+def msg_issue_new(it):
+    src = "ลูกค้าแจ้ง" if it.source == "external" else "พบภายใน"
+    subject = f"Quality Issue ใหม่ {it.case_no} ({src}) {it.customer.code if it.customer else ''} {it.part_no}"
     body = (f"Part: {it.part_no} {it.part_name}\nModel: {it.model}\nปัญหา: {it.problem}\nจำนวน NG: {it.ng_qty or 0} pc.\n"
             f"พบที่: {it.found_at} {it.line.name if it.line else ''}  วันที่ {it.found_date:%d/%m/%Y}\n"
-            f"ผู้แจ้ง: {(it.reporter.full_name or it.reporter.username) if it.reporter else '-'}")
-    ph = db.query(IssuePhoto).options(undefer(IssuePhoto.data)).filter(IssuePhoto.issue_id == it.id).first()
-    notify.dispatch(db, "issue_new", ev.get("channels"), subject, body, to=ev.get("to"), cc=ev.get("cc"),
-                    photo=bytes(ph.data) if ph and ph.data else None, link=f"/issues/{it.id}", perm="issue.view",
-                    level="alert" if it.source == "external" else "warn")
+            + (f"QA/QC Action: {it.action}\n" if it.action else "")
+            + f"ผู้แจ้ง: {(it.reporter.full_name or it.reporter.username) if it.reporter else '-'}\n\n"
+            "กรุณา Assy เข้าไปลง Root Cause / Correction / Prevention ในโปรแกรม")
+    return subject, body
+
+
+def _case_lines(it):
+    return (f"เคส: {it.case_no}  ({'ลูกค้าแจ้ง' if it.source == 'external' else 'พบภายใน'})\n"
+            f"Part: {it.part_no} {it.part_name}\nปัญหา: {it.problem}\nจำนวน NG: {it.ng_qty or 0} pc.  "
+            f"พบเมื่อ {it.found_date:%d/%m/%Y} ที่ {it.found_at or '-'}")
+
+
+def _answer_lines(it):
+    dates = " ".join(x for x in (f"Plan: {it.plan_date:%d/%m/%Y}" if it.plan_date else "",
+                                  f"Actual: {it.actual_date:%d/%m/%Y}" if it.actual_date else "") if x)
+    return (f"\n\n1. Root Cause: {it.root_cause or '-'}\n2. Correction: {it.correction or '-'}"
+            + (f"\n   {dates}" if dates else "")
+            + f"\nผู้รับผิดชอบ: {it.responsible or '-'}\n3. Prevention: {it.prevention or '-'}")
+
+
+def msg_issue_answered(it, who):
+    return (f"Assy ตอบปัญหาแล้ว {it.case_no} {it.customer.code if it.customer else ''} {it.part_no}",
+            f"{_case_lines(it)}{_answer_lines(it)}\n\nตอบโดย: {who}")
+
+
+def msg_issue_status(it, old, new, who):
+    names = {"open": "เปิดอยู่", "in_progress": "กำลังแก้ไข", "closed": "ปิดแล้ว"}
+    body = f"{_case_lines(it)}\n\nสถานะ: {names.get(old, old)} -> {names.get(new, new)}  โดย {who}"
+    if new == "closed":
+        body += _answer_lines(it)
+    return f"เคส {it.case_no} เปลี่ยนสถานะเป็น {names.get(new, new)}", body
+
+
+def issue_answered(db, issue_id, by_user_id):
+    """Assy saved or changed the analysis of a case."""
+    ev = get_setting(db, "events")["issue_answered"]
+    it = db.get(Issue, issue_id)
+    if not ev.get("enabled") or not it:
+        return
+    by = db.get(User, by_user_id)
+    who = (by.full_name or by.username) if by else "-"
+    subject, body = msg_issue_answered(it, who)
+    to, cc, _ = notify.recipients(db, ev, [it.reported_by] if ev.get("reporter") else [])
+    notify.dispatch(db, "issue_answered", ev.get("channels"), subject, body, to=to, cc=cc, link=f"/issues/{it.id}",
+                    perm="issue.view|issue.status", level="info")
+
+
+def issue_status_changed(db, issue_id, old, new, by_user_id):
+    """QC moved a case to another status."""
+    ev = get_setting(db, "events")["issue_status"]
+    it = db.get(Issue, issue_id)
+    if not ev.get("enabled") or not it or old == new or (ev.get("closed_only") and new != "closed"):
+        return
+    by = db.get(User, by_user_id)
+    who = (by.full_name or by.username) if by else "-"
+    subject, body = msg_issue_status(it, old, new, who)
+    to, cc, _ = notify.recipients(db, ev, [it.reported_by] if ev.get("reporter") else [])
+    notify.dispatch(db, "issue_status", ev.get("channels"), subject, body, to=to, cc=cc, link=f"/issues/{it.id}",
+                    perm="issue.view|issue.answer", level="ok" if new == "closed" else "info")
 
 
 def ng_alert(db, record_ids):
@@ -162,7 +228,8 @@ def ng_alert(db, record_ids):
     subject = f"NG/NC เกิน {th:g}% : {r0.line.name} กะ {'Day' if r0.shift == 'D' else 'Night'} {r0.work_date:%d/%m/%Y}"
     body = "\n".join(f"- {r.customer.code} {r.part.part_no}: Check {r.qc_check} NG {r.ng} NC {r.nc} ({pct:.1f}%)"
                      for r, pct in bad)
-    notify.dispatch(db, "ng_alert", ev.get("channels"), subject, body, to=ev.get("to"), cc=ev.get("cc"),
+    to, cc, _ = notify.recipients(db, ev)
+    notify.dispatch(db, "ng_alert", ev.get("channels"), subject, body, to=to, cc=cc,
                     link=f"/inspection/records?from={r0.work_date}&to={r0.work_date}&line={r0.line_id}",
                     perm="insp.view", level="alert")
 
@@ -186,7 +253,8 @@ def daily_maintenance(db):
         notify.dispatch(db, "photo_expiry", [c for c in chans if c != "email"], subject, body,
                         link="/admin/backup", perm="admin", level="warn")
         if "email" in chans:
-            notify.dispatch(db, "photo_expiry", ["email"], subject, body, to=ev.get("to"), cc=ev.get("cc"),
+            to, cc, _ = notify.recipients(db, ev)
+            notify.dispatch(db, "photo_expiry", ["email"], subject, body, to=to, cc=cc,
                             attachments=att, link="/admin/backup")
         out.append(f"expiry notice {st['soon']}")
     try:

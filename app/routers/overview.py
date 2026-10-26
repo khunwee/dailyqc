@@ -2,10 +2,11 @@ import calendar
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session, joinedload
 
 from .. import config
-from ..core import can, pdate, period_range, render, require, shift_now
+from ..core import Forbidden, can, current_user, home_path, pdate, period_range, render, shift_now, user_perms
 from ..db import get_db
 from ..models import Issue, User
 from ..services import reports
@@ -15,7 +16,11 @@ router = APIRouter()
 
 @router.get("/")
 def overview(request: Request, m: str = "day", d: str = "", ym: str = "",
-             user: User = Depends(require("overview.view", "insp.view", "issue.view")), db: Session = Depends(get_db)):
+             user: User = Depends(current_user), db: Session = Depends(get_db)):
+    if not user_perms(user) & {"overview.view", "insp.view", "issue.view"}:
+        if home_path(user) != "/":
+            return RedirectResponse(home_path(user), 303)      # e.g. an Assy account goes straight to its cases
+        raise Forbidden("overview.view")
     today = config.today()
     q = request.query_params
     if m == "month":

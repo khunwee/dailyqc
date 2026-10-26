@@ -24,11 +24,11 @@
     {{ nav('/inspection/report', 'รายงานส่ง Assembly', 'Report for Assembly') }}
     {{ nav('/inspection/charts', 'กราฟวิเคราะห์', 'Charts') }}
     {% endif %}{% endif %}
-    {% if 'issue.view' in perms or 'issue.create' in perms %}
+    {% if 'issue.view' in perms or 'issue.create' in perms or 'issue.answer' in perms %}
     <div class="nav-group">QC Report Quality Issue</div>
     {% if 'issue.create' in perms %}{{ nav('/issues/new', 'แจ้งปัญหาที่พบ', 'Report an issue') }}{% endif %}
-    {% if 'issue.view' in perms %}
     <a href="/issues" class="{{ 'on' if path == '/issues' or (path.startswith('/issues/') and path.split('/')[2].isdigit()) }}">{{ L('รายการเคส', 'Cases') }}</a>
+    {% if 'issue.view' in perms %}
     {{ nav('/issues/report', 'รายงานสรุปพร้อมรูป', 'Summary report') }}
     {{ nav('/issues/charts', 'กราฟวิเคราะห์', 'Charts') }}
     {% endif %}{% endif %}

@@ -200,6 +200,7 @@ class Schedule(Base):
     shift = Column(String(1), default="")                 # for "missing" reminders
     to_addr = Column(Text, default="")
     cc_addr = Column(Text, default="")
+    to_roles = Column(String(200), default="")      # comma separated role codes: e-mail every user of them
     channels = Column(String(120), default="email")
     attach_excel = Column(Boolean, default=True)
     with_photos = Column(Boolean, default=True)

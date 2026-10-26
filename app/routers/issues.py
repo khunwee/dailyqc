@@ -36,7 +36,22 @@ def _filters(request):
 
 
 def can_edit(user, it: Issue):
+    """Change the case itself (part, problem, photos, QC action)."""
     return can(user, "issue.edit_all") or (can(user, "issue.create") and it.reported_by == user.id and it.status != "closed")
+
+
+def can_answer(user, it: Issue):
+    """Fill in the Assy answer: root cause, correction, plan / actual date, responsible, prevention.
+    Once QC has closed the case the answer is frozen, except for users who may edit every case."""
+    return can(user, "issue.edit_all") or (can(user, "issue.answer") and it.status != "closed")
+
+
+def can_status(user):
+    """Only QC changes the status of a case."""
+    return can(user, "issue.status") or can(user, "issue.edit_all")
+
+
+VIEW_CASES = require("issue.view", "issue.answer")      # list and case page: QC and Assy
 
 
 def _next_case_no(db, d):
@@ -71,16 +86,22 @@ async def _add_photos(db, it, files, tags):
 
 # ---------------------------------------------------------------- list
 @router.get("/issues")
-def issue_list(request: Request, page: int = 1, user: User = Depends(require("issue.view")), db: Session = Depends(get_db)):
+def issue_list(request: Request, page: int = 1, user: User = Depends(VIEW_CASES), db: Session = Depends(get_db)):
     d1, d2, p = parse_range(request, "this_month")
     f = _filters(request)
     q = reports.issue_query(db, d1, d2, **f)
+    ans = request.query_params.get("answer") or ""
+    no_answer = (Issue.root_cause.is_(None)) | (Issue.root_cause == "")
+    if ans == "pending":
+        q = q.filter(no_answer)
+    elif ans == "done":
+        q = q.filter(~no_answer)
     total = q.count()
     per = 30
     rows = q.options(joinedload(Issue.customer), joinedload(Issue.line), joinedload(Issue.photos), joinedload(Issue.reporter)) \
         .order_by(Issue.found_date.desc(), Issue.id.desc()).offset((max(1, page) - 1) * per).limit(per).all()
     return render(request, "issue/list.html", db=db, rows=rows, total=total, page=max(1, page), pages=(total + per - 1) // per,
-                  d1=d1, d2=d2, p=p, f=f, **_lists(db))
+                  d1=d1, d2=d2, p=p, f=f, ans=ans, **_lists(db))
 
 
 # ---------------------------------------------------------------- create / edit
@@ -95,6 +116,8 @@ def issue_new(request: Request, user: User = Depends(require("issue.create")), d
 
 
 def _apply(db, it, form, user, is_new):
+    """Each group of fields is written only by the people allowed to change it,
+    whatever the browser sends."""
     g = lambda k, d="": (form.get(k) or d).strip()  # noqa: E731
     if is_new or can_edit(user, it):
         it.source = "external" if g("source") == "external" else "internal"
@@ -117,18 +140,17 @@ def _apply(db, it, form, user, is_new):
         it.found_at = g("found_at")
         it.ng_qty = max(0, pint(g("ng_qty"), 0) or 0)
         it.lot_no = g("lot_no")
-    if can(user, "issue.analyze") or can(user, "issue.edit_all"):
         if "action" in form:
-            it.action, it.root_cause = g("action"), g("root_cause")
-            it.correction, it.prevention = g("correction"), g("prevention")
-            it.plan_date, it.actual_date = pdate(g("plan_date")), pdate(g("actual_date"))
-            it.responsible = g("responsible")
-            st = g("status", it.status or "open")
-            if st in ("open", "in_progress", "closed") and st != it.status:
-                it.status = st
-                it.closed_at = config.now() if st == "closed" else None
-    elif is_new and "action" in form:
-        it.action = g("action")
+            it.action = g("action")
+    if not is_new and "root_cause" in form and can_answer(user, it):
+        it.root_cause, it.correction, it.prevention = g("root_cause"), g("correction"), g("prevention")
+        it.plan_date, it.actual_date = pdate(g("plan_date")), pdate(g("actual_date"))
+        it.responsible = g("responsible")
+    if not is_new and "status" in form and can_status(user):
+        st = g("status", it.status or "open")
+        if st in ("open", "in_progress", "closed") and st != it.status:
+            it.status = st
+            it.closed_at = config.now() if st == "closed" else None
     it.updated_at = config.now()
 
 
@@ -186,50 +208,60 @@ def issue_export(request: Request, photos: int = 1, user: User = Depends(require
 
 
 @router.get("/issues/{iid}")
-def issue_detail(iid: int, request: Request, user: User = Depends(require("issue.view")), db: Session = Depends(get_db)):
+def issue_detail(iid: int, request: Request, user: User = Depends(VIEW_CASES), db: Session = Depends(get_db)):
     it = db.get(Issue, iid)
     if not it:
         return render(request, "message.html", db=db, title="ไม่พบเคสนี้", text="เคสอาจถูกลบไปแล้ว", back="/issues")
-    return render(request, "issue/detail.html", db=db, it=it, editable=can_edit(user, it), keep_days=retention_days(db),
-                  max_photos=MAX_PHOTOS)
+    return render(request, "issue/detail.html", db=db, it=it, editable=can_edit(user, it), answerable=can_answer(user, it),
+                  status_ok=can_status(user), keep_days=retention_days(db), max_photos=MAX_PHOTOS)
 
 
 @router.get("/issues/{iid}/edit")
-def issue_edit(iid: int, request: Request, user: User = Depends(require("issue.view")), db: Session = Depends(get_db)):
+def issue_edit(iid: int, request: Request, user: User = Depends(VIEW_CASES), db: Session = Depends(get_db)):
     it = db.get(Issue, iid)
-    if not it or not (can_edit(user, it) or can(user, "issue.analyze")):
+    if not it or not (can_edit(user, it) or can_answer(user, it) or can_status(user)):
         flash(request, "ไม่มีสิทธิ์แก้ไขเคสนี้", "err")
         return RedirectResponse(f"/issues/{iid}" if it else "/issues", 303)
     return render(request, "issue/form.html", db=db, it=it, is_new=False, max_photos=MAX_PHOTOS,
-                  keep_days=retention_days(db), full_edit=can_edit(user, it), **_lists(db))
+                  keep_days=retention_days(db), full_edit=can_edit(user, it), answerable=can_answer(user, it),
+                  status_ok=can_status(user), **_lists(db))
 
 
 @router.post("/issues/{iid}/edit")
 async def issue_update(iid: int, request: Request, photos: List[UploadFile] = File(default=[]),
-                       user: User = Depends(require("issue.view")), db: Session = Depends(get_db)):
+                       user: User = Depends(VIEW_CASES), db: Session = Depends(get_db)):
     it = db.get(Issue, iid)
-    if not it or not (can_edit(user, it) or can(user, "issue.analyze")):
+    if not it or not (can_edit(user, it) or can_answer(user, it) or can_status(user)):
         flash(request, "ไม่มีสิทธิ์แก้ไขเคสนี้", "err")
         return RedirectResponse("/issues", 303)
     form = await request.form()
+    ans_keys = ("root_cause", "correction", "prevention", "responsible", "plan_date", "actual_date")
+    before = tuple(str(getattr(it, k) or "") for k in ans_keys)
+    old_status = it.status
     _apply(db, it, form, user, False)
     added, bad = (await _add_photos(db, it, photos, form.getlist("tags"))) if can_edit(user, it) else (0, 0)
     db.commit()
+    if tuple(str(getattr(it, k) or "") for k in ans_keys) != before:
+        jobs.run_bg(jobs.issue_answered, it.id, user.id)
+    if it.status != old_status:
+        jobs.run_bg(jobs.issue_status_changed, it.id, old_status, it.status, user.id)
     audit(db, user, "issue_update", f"{it.case_no} status={it.status}")
     flash(request, f"บันทึกเคส {it.case_no} แล้ว" + (f" เพิ่มรูป {added} รูป" if added else ""))
     return RedirectResponse(f"/issues/{iid}", 303)
 
 
 @router.post("/issues/{iid}/status")
-def issue_status(iid: int, request: Request, status: str = Form(...), user: User = Depends(require("issue.analyze", "issue.edit_all")),
+def issue_status(iid: int, request: Request, status: str = Form(...), user: User = Depends(require("issue.status", "issue.edit_all")),
                  db: Session = Depends(get_db)):
     it = db.get(Issue, iid)
-    if it and status in ("open", "in_progress", "closed"):
+    if it and status in ("open", "in_progress", "closed") and status != it.status:
+        old_status = it.status
         it.status = status
         it.closed_at = config.now() if status == "closed" else None
         it.updated_at = config.now()
         db.commit()
         audit(db, user, "issue_status", f"{it.case_no} -> {status}")
+        jobs.run_bg(jobs.issue_status_changed, it.id, old_status, status, user.id)
         flash(request, "เปลี่ยนสถานะเคสแล้ว")
     return RedirectResponse(f"/issues/{iid}", 303)
 
@@ -274,7 +306,7 @@ def photo_tag(pid: int, request: Request, tag: str = Form(""), user: User = Depe
 
 # ---------------------------------------------------------------- images
 @router.get("/photo/{pid}")
-def photo(pid: int, t: int = 0, user: User = Depends(require("issue.view")), db: Session = Depends(get_db)):
+def photo(pid: int, t: int = 0, user: User = Depends(VIEW_CASES), db: Session = Depends(get_db)):
     ph = db.query(IssuePhoto).options(undefer(IssuePhoto.thumb if t else IssuePhoto.data), undefer(IssuePhoto.thumb)) \
         .filter(IssuePhoto.id == pid).first()
     data = (ph.thumb if t else (ph.data or ph.thumb)) if ph else None

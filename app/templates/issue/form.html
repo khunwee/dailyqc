@@ -1,9 +1,8 @@
 {% extends "base.html" %}
 {% block crumb %}<span class="crumb">QC Report Quality Issue</span>{% endblock %}
-{% block title %}{% if is_new %}{{ L('แจ้งปัญหาที่พบ', 'Report an issue') }}{% else %}{{ L('แก้ไขเคส', 'Edit case') }} {{ it.case_no }}{% endif %}{% endblock %}
+{% block title %}{% if is_new %}{{ L('แจ้งปัญหาที่พบ', 'Report an issue') }}{% elif not full_edit and answerable %}{{ L('ตอบปัญหาเคส', 'Answer case') }} {{ it.case_no }}{% else %}{{ L('แก้ไขเคส', 'Edit case') }} {{ it.case_no }}{% endif %}{% endblock %}
 {% block content %}
 {% set full = is_new or full_edit %}
-{% set analyze = 'issue.analyze' in perms or 'issue.edit_all' in perms %}
 <form method="post" enctype="multipart/form-data" id="f" action="{{ '/issues/new' if is_new else '/issues/' ~ it.id ~ '/edit' }}" style="max-width:980px">
 {% if full %}
 <section class="panel">
@@ -52,7 +51,7 @@
     </div>
     <div class="field"><label>{{ L('รายละเอียดปัญหา', 'Problem description') }}</label>
       <textarea name="problem" placeholder="{{ L('เช่น Sub nut wrong spec. Std. M8 thread / Act. M8 no thread', 'e.g. Sub nut wrong spec. Std. M8 thread / Act. M8 no thread') }}">{{ it.problem }}</textarea></div>
-    {% if is_new and not analyze %}<div class="field"><label>{{ L('การจัดการเบื้องต้นของ QC (ถ้ามี)', 'Immediate QC action (if any)') }}</label><textarea name="action" placeholder="{{ L('เช่น Sorting ที่ AAPICO 330 pcs. OK 330, NG 0', 'e.g. Sorted 330 pcs at AAPICO. OK 330, NG 0') }}"></textarea></div>{% endif %}
+    <div class="field"><label>QA/QC-AHR Action {{ L('(การจัดการเบื้องต้นของ QC ถ้ามี)', '(immediate QC action, if any)') }}</label><textarea name="action" placeholder="{{ L('เช่น Sorting ที่ AAPICO 330 pcs. OK 330, NG 0', 'e.g. Sorted 330 pcs at AAPICO. OK 330, NG 0') }}">{{ it.action or '' }}</textarea></div>
   </div>
 </section>
 
@@ -71,30 +70,62 @@
   </div>
 </section>
 {% else %}
-<section class="panel"><div class="body"><dl class="kv">
-  <dt>Part</dt><dd><b>{{ it.part_no }}</b> {{ it.part_name }}</dd><dt>{{ L('ปัญหา', 'Problem') }}</dt><dd>{{ it.problem }}</dd>
-  <dt>{{ L('พบเมื่อ', 'Found') }}</dt><dd>{{ it.found_date | d }} {{ it.found_at }}, NG {{ it.ng_qty }} pc.</dd></dl></div></section>
+{# Assy (or QC on a closed case): the case is shown read-only, only the answer / status below can be changed #}
+<section class="panel">
+  <header><h2>{{ L('ปัญหาที่ QC แจ้ง', 'Problem reported by QC') }}</h2></header>
+  <div class="body">
+    <dl class="kv">
+      <dt>Customer</dt><dd><b>{{ it.customer.code if it.customer else '-' }}</b>{% if it.model %} &nbsp; Model: {{ it.model }}{% endif %}</dd>
+      <dt>Part Number</dt><dd><b>{{ it.part_no or '-' }}</b></dd>
+      <dt>Part Name</dt><dd>{{ it.part_name or '-' }}</dd>
+      <dt>Problem</dt><dd><b>{{ it.problem or '-' }}</b></dd>
+      <dt>Found Date</dt><dd>{{ it.found_date | d }}{% if it.shift %} ({{ 'Day' if it.shift == 'D' else 'Night' }}){% endif %}</dd>
+      <dt>Found At</dt><dd>{{ it.found_at or '-' }}{% if it.line %}, {{ it.line.name }}{% endif %}</dd>
+      <dt>NG Q'ty</dt><dd><b class="c-ng">{{ it.ng_qty }} pc.</b>{% if it.lot_no %} &nbsp; Lot {{ it.lot_no }}{% endif %}</dd>
+      {% if it.action %}<dt>QA/QC-AHR Action</dt><dd>{{ it.action }}</dd>{% endif %}
+    </dl>
+    {% if it.photos %}<div class="photos" style="margin-top:12px">{% for ph in it.photos %}
+      <div class="photo {{ 'gone' if ph.purged_at }}"><img src="/photo/{{ ph.id }}?t=1" alt="" {% if not ph.purged_at %}data-full="/photo/{{ ph.id }}"{% endif %}>{% if ph.tag %}<span class="stamp {{ ph.tag }}">{{ ph.tag }}</span>{% endif %}</div>{% endfor %}</div>{% endif %}
+  </div>
+</section>
 {% endif %}
 
-{% if analyze %}
+{% if not is_new %}
+{% if answerable %}
 <section class="panel">
-  <header><h2>{{ L('การวิเคราะห์และแก้ไข', 'Analysis and correction') }}</h2></header>
+  <header><h2>{{ L('การวิเคราะห์และแก้ไข (Assy)', 'Analysis and correction (Assy)') }}</h2></header>
   <div class="body">
-    <div class="field"><label>QA/QC-AHR Action</label><textarea name="action" placeholder="{{ L('เช่น จัดคน Sorting ที่ลูกค้า 400 pcs. Result OK 400, NG 0', 'e.g. Resident sorted 400 pcs at customer. OK 400, NG 0') }}">{{ it.action or '' }}</textarea></div>
-    <div class="field"><label>1. Root Cause</label><textarea name="root_cause">{{ it.root_cause or '' }}</textarea></div>
-    <div class="field"><label>2. Correction (Immediate Containment)</label><textarea name="correction">{{ it.correction or '' }}</textarea></div>
+    <div class="field"><label>1. Root Cause</label><textarea name="root_cause" placeholder="{{ L('สาเหตุที่แท้จริงของปัญหา', 'The real cause of the problem') }}">{{ it.root_cause or '' }}</textarea></div>
+    <div class="field"><label>2. Correction (Immediate Containment)</label><textarea name="correction" placeholder="{{ L('การแก้ไขที่ทำทันที', 'What was done right away') }}">{{ it.correction or '' }}</textarea></div>
     <div class="frow">
       <div class="field"><label>Plan date</label><input type="date" name="plan_date" value="{{ it.plan_date or '' }}"></div>
       <div class="field"><label>Actual date</label><input type="date" name="actual_date" value="{{ it.actual_date or '' }}"></div>
       <div class="field"><label>{{ L('ผู้รับผิดชอบ', 'Responsible') }}</label><input type="text" name="responsible" value="{{ it.responsible or '' }}"></div>
-      <div class="field"><label>{{ L('สถานะเคส', 'Case status') }}</label><select name="status">
-        <option value="open" {{ 'selected' if it.status == 'open' }}>{{ L('เปิดอยู่', 'Open') }}</option><option value="in_progress" {{ 'selected' if it.status == 'in_progress' }}>{{ L('กำลังแก้ไข', 'In progress') }}</option><option value="closed" {{ 'selected' if it.status == 'closed' }}>{{ L('ปิดแล้ว', 'Closed') }}</option></select></div>
     </div>
-    <div class="field"><label>3. Prevention</label><textarea name="prevention">{{ it.prevention or '' }}</textarea></div>
+    <div class="field"><label>3. Prevention</label><textarea name="prevention" placeholder="{{ L('การป้องกันไม่ให้เกิดซ้ำ', 'How it is kept from happening again') }}">{{ it.prevention or '' }}</textarea></div>
   </div>
 </section>
+{% else %}
+<section class="panel">
+  <header><h2>{{ L('การวิเคราะห์และแก้ไข (Assy)', 'Analysis and correction (Assy)') }}</h2></header>
+  <div class="body"><dl class="kv">
+    <dt>1. Root Cause</dt><dd>{{ it.root_cause or L('ยังไม่ได้ตอบ', 'Not answered yet') }}</dd>
+    <dt>2. Correction</dt><dd>{{ it.correction or '-' }}</dd>
+    <dt>Plan / Actual</dt><dd>{{ (it.plan_date | d) or '-' }} / {{ (it.actual_date | d) or '-' }}</dd>
+    <dt>{{ L('ผู้รับผิดชอบ', 'Responsible') }}</dt><dd>{{ it.responsible or '-' }}</dd>
+    <dt>3. Prevention</dt><dd>{{ it.prevention or '-' }}</dd></dl>
+    {% if it.status == 'closed' and 'issue.answer' in perms %}<p class="hint">{{ L('เคสนี้ QC ปิดแล้ว จึงแก้คำตอบไม่ได้', 'QC has closed this case, so the answer can no longer be changed.') }}</p>{% endif %}</div>
+</section>
 {% endif %}
-<div class="inline"><button class="btn go" id="sub" style="min-height:46px;padding:8px 26px">{{ L('บันทึกเคส', 'Save case') }}</button>
+{% if status_ok %}
+<section class="panel">
+  <header><h2>{{ L('สถานะเคส (QC)', 'Case status (QC)') }}</h2></header>
+  <div class="body"><div class="field" style="max-width:320px;margin:0"><select name="status">
+    <option value="open" {{ 'selected' if it.status == 'open' }}>{{ L('เปิดอยู่', 'Open') }}</option><option value="in_progress" {{ 'selected' if it.status == 'in_progress' }}>{{ L('กำลังแก้ไข', 'In progress') }}</option><option value="closed" {{ 'selected' if it.status == 'closed' }}>{{ L('ปิดแล้ว', 'Closed') }}</option></select></div></div>
+</section>
+{% endif %}
+{% endif %}
+<div class="inline"><button class="btn go" id="sub" style="min-height:46px;padding:8px 26px">{% if not is_new and not full_edit and answerable %}{{ L('บันทึกคำตอบ', 'Save answer') }}{% else %}{{ L('บันทึกเคส', 'Save case') }}{% endif %}</button>
   <a class="btn" href="{{ '/issues' if is_new else '/issues/' ~ it.id }}">{{ L('ยกเลิก', 'Cancel') }}</a></div>
 </form>
 {% endblock %}

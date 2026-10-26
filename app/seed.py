@@ -32,6 +32,7 @@ def seed_initial(db):
         for code, name, perms, system in DEFAULT_ROLES:
             db.add(Role(code=code, name=name, perms=json.dumps(perms), is_system=system))
         db.commit()
+    migrate_roles(db)
     if db.query(User).count() == 0:
         admin = db.query(Role).filter_by(code="admin").one()
         db.add(User(username="admin", full_name="Administrator", role_id=admin.id,
@@ -95,9 +96,36 @@ def seed_initial(db):
         db.commit()
 
 
+def migrate_roles(db):
+    """v1.2: "issue.analyze" was split into "issue.answer" (Assy fills in the analysis) and "issue.status"
+    (only QC changes the status), and the Assembly role became the answer-only "assy" role.
+    Runs once per database; later permission edits by the admin are left alone."""
+    from .core import get_setting, set_setting
+    if get_setting(db, "schema").get("roles_v12"):
+        return
+    roles = db.query(Role).all()
+    for r in roles:
+        try:
+            perms = json.loads(r.perms or "[]")
+        except ValueError:
+            perms = []
+        if r.code == "assembly" and not any(x.code == "assy" for x in roles):
+            r.code, r.name, perms = "assy", "Assy (ตอบปัญหา Quality Issue)", ["issue.answer"]
+        elif "issue.analyze" in perms:
+            perms = [p for p in perms if p != "issue.analyze"] + ["issue.answer", "issue.status"]
+        elif r.code == "qc" and "issue.status" not in perms:
+            perms.append("issue.status")
+        r.perms = json.dumps(list(dict.fromkeys(perms)))
+    db.commit()
+    if not db.query(Role).filter_by(code="assy").first():
+        db.add(Role(code="assy", name="Assy (ตอบปัญหา Quality Issue)", perms=json.dumps(["issue.answer"])))
+        db.commit()
+    set_setting(db, "schema", {"roles_v12": True})
+
+
 # ---------------------------------------------------------------- demo data
 DEMO_USERS = [("demo_qc", "QC Line A (demo)", "qc"), ("demo_sup", "QC Supervisor (demo)", "manager"),
-              ("demo_asm", "Assembly (demo)", "assembly")]
+              ("demo_asm", "Assy (demo)", "assy")]
 
 
 def load_demo(db, days=24):

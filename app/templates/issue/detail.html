@@ -3,10 +3,10 @@
 {% block crumb %}<span class="crumb"><a href="/issues">{{ L('รายการเคส', 'Cases') }}</a></span>{% endblock %}
 {% block title %}{{ it.case_no }}{% endblock %}
 {% block content %}
-{% set analyze = 'issue.analyze' in perms or 'issue.edit_all' in perms %}
 <div class="inline noprint" style="margin-bottom:14px">
-  {% if editable or analyze %}<a class="btn pri" href="/issues/{{ it.id }}/edit">{{ L('แก้ไข / ลงผลวิเคราะห์', 'Edit / add analysis') }}</a>{% endif %}
-  {% if analyze %}<form method="post" action="/issues/{{ it.id }}/status" class="inline">
+  {% if editable %}<a class="btn pri" href="/issues/{{ it.id }}/edit">{{ L('แก้ไขเคส / ลงผลวิเคราะห์', 'Edit case / analysis') if answerable else L('แก้ไขเคส', 'Edit case') }}</a>
+  {% elif answerable %}<a class="btn pri" href="/issues/{{ it.id }}/edit">{{ L('ตอบปัญหา / ลงผลวิเคราะห์', 'Answer / add analysis') }}</a>{% endif %}
+  {% if status_ok %}<form method="post" action="/issues/{{ it.id }}/status" class="inline">
     {% for s, th, en in [('open', 'เปิดอยู่', 'Open'), ('in_progress', 'กำลังแก้ไข', 'In progress'), ('closed', 'ปิดเคส', 'Close case')] %}{% if s != it.status %}<button class="btn" name="status" value="{{ s }}">{{ L('เปลี่ยนเป็น', 'Set to') }} {{ L(th, en) }}</button>{% endif %}{% endfor %}</form>{% endif %}
   <button class="btn" onclick="window.print()">{{ L('พิมพ์', 'Print') }}</button>
   {% if editable %}<form method="post" action="/issues/{{ it.id }}/delete" data-confirm="{{ L('ลบเคสนี้พร้อมรูปทั้งหมด? กู้คืนไม่ได้', 'Delete this case and all its photos? This cannot be undone.') }}"><button class="btn danger">{{ L('ลบเคส', 'Delete case') }}</button></form>{% endif %}
